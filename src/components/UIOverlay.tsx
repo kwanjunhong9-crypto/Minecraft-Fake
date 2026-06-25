@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { BlockType, BLOCK_DETAILS, PlayerStats, GameSettings, WorldSave } from '../types';
 import { playSound } from '../utils/audio';
+import { BlockSprite } from './BlockSprite';
 
 interface UIOverlayProps {
   playerStats: PlayerStats;
@@ -164,8 +165,8 @@ export default function UIOverlay({
             <span className="text-xs font-mono tracking-widest uppercase opacity-70">Server Active: Cave Exploration Alpha</span>
           </div>
           <div className="mt-2 font-mono text-[10px] text-white/40 space-y-0.5 uppercase pl-1">
-            <p>XYZ: {playerStats.position.x.toFixed(1)} / {playerStats.position.y.toFixed(1)} / {playerStats.position.z.toFixed(1)}</p>
-            <p>Biome: {playerStats.position.y < 5 ? 'Deepslate Caverns' : 'Emerald Plains'}</p>
+            <p id="hud-xyz-coords">XYZ: {playerStats.position.x.toFixed(1)} / {playerStats.position.y.toFixed(1)} / {playerStats.position.z.toFixed(1)}</p>
+            <p id="hud-biome-name">Biome: {playerStats.position.y < 5 ? 'Deepslate Caverns' : 'Emerald Plains'}</p>
             <p>FPS: {140 + Math.floor(Math.sin(Date.now() / 2000) * 3)}</p>
           </div>
         </div>
@@ -176,7 +177,7 @@ export default function UIOverlay({
           <div className="bg-black/40 backdrop-blur-md border border-white/10 p-3 rounded-lg flex gap-4 shadow-lg">
             <div className="text-right">
               <p className="text-[10px] uppercase opacity-50">Current Depth</p>
-              <p className="text-xl font-bold text-cyan-400 font-mono leading-tight">LEVEL {currentDepthLevel}</p>
+              <p id="hud-current-depth" className="text-xl font-bold text-cyan-400 font-mono leading-tight">LEVEL {currentDepthLevel}</p>
             </div>
             <div className="w-[1px] bg-white/10"></div>
             <div className="text-right">
@@ -443,27 +444,7 @@ export default function UIOverlay({
                                 }`}
                               >
                                 {/* Pseudo 3D Block Visual */}
-                                <div
-                                  className="w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center font-bold text-[9px] shadow-inner relative overflow-hidden"
-                                  style={{
-                                    backgroundColor: block.color,
-                                    border: '1.5px solid rgba(255,255,255,0.15)',
-                                    boxShadow: 'inset -3px -3px 0px rgba(0,0,0,0.3), inset 3px 3px 0px rgba(255,255,255,0.2)'
-                                  }}
-                                >
-                                  {/* Special visual details */}
-                                  {block.type === BlockType.GRASS && (
-                                    <div className="absolute top-0 left-0 right-0 h-3 bg-[#4ade80] border-b border-black/10" />
-                                  )}
-                                  {block.type === BlockType.TORCH && (
-                                    <div className="w-1.5 h-6 bg-amber-800 rounded-xs relative">
-                                      <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-orange-500 rounded-full animate-pulse" />
-                                    </div>
-                                  )}
-                                  {block.emissiveColor && (
-                                    <div className="absolute inset-1 rounded-sm border border-white/40 animate-pulse bg-white/5" />
-                                  )}
-                                </div>
+                                <BlockSprite type={block.type} size="md" />
 
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5">
@@ -903,23 +884,7 @@ export default function UIOverlay({
                   title={`${details.name} (鍵盤數字鍵 ${index + 1})`}
                 >
                   {/* Pseudo-3D Voxel representation */}
-                  <div
-                    className="w-8 h-8 rounded-sm relative flex items-center justify-center font-bold text-[8px] overflow-hidden"
-                    style={{
-                      backgroundColor: details.color,
-                      border: '1.2px solid rgba(255,255,255,0.15)',
-                      boxShadow: 'inset -2px -2px 0px rgba(0,0,0,0.3), inset 2px 2px 0px rgba(255,255,255,0.2)'
-                    }}
-                  >
-                    {type === BlockType.GRASS && (
-                      <div className="absolute top-0 left-0 right-0 h-2.5 bg-[#4ade80] border-b border-black/15" />
-                    )}
-                    {type === BlockType.TORCH && (
-                      <div className="w-1.5 h-5 bg-amber-850 rounded-xs relative">
-                        <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-orange-500 rounded-full animate-pulse shadow-[0_0_6px_#f97316]" />
-                      </div>
-                    )}
-                  </div>
+                  <BlockSprite type={type} size="md" />
 
                   {/* Slot Number Label */}
                   <span className="absolute bottom-0.5 right-1.5 text-[9px] font-bold text-white opacity-65 font-mono">
@@ -940,10 +905,7 @@ export default function UIOverlay({
           {/* Active selection tag overlay (centered) */}
           <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1 rounded-full border border-white/5 shadow-md">
             <span>現持:</span>
-            <span
-              className="w-2.5 h-2.5 inline-block rounded-xs shadow-inner"
-              style={{ backgroundColor: activeBlockInfo?.color }}
-            />
+            <BlockSprite type={playerStats.selectedBlock} size="sm" />
             <strong className="text-white font-bold">{activeBlockInfo?.name}</strong>
             <span className="text-zinc-600">|</span>
             <span className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">

@@ -4,6 +4,7 @@ import { Compass } from 'lucide-react';
 import { BlockType, BLOCK_DETAILS, GameSettings, PlayerStats } from '../types';
 import { PerlinNoise, SeededRandom } from '../utils/noise';
 import { playSound } from '../utils/audio';
+import { generateBlockTextureCanvas } from '../utils/textureGenerator';
 
 interface GameCanvasProps {
   playerStats: PlayerStats;
@@ -54,6 +55,11 @@ export default function GameCanvas({
 
   // Handle Pointer Lock instructions popup state
   const [pointerLocked, setPointerLocked] = useState(false);
+  const pointerLockedRef = useRef(false);
+
+  useEffect(() => {
+    pointerLockedRef.current = pointerLocked;
+  }, [pointerLocked]);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -208,21 +214,63 @@ export default function GameCanvas({
     
     // Instanced Mesh Group for blocks
     const meshes: Record<number, THREE.InstancedMesh> = {};
-    const materials: Record<number, THREE.Material> = {};
+    const materials: Record<number, THREE.Material | THREE.Material[]> = {};
 
-    // Helper to build colors/materials for block types
+    // Helper to build colors/materials for block types using the central texture generator
     const createVoxelMaterials = () => {
+      const createTextureFromCanvas = (canvas: HTMLCanvasElement) => {
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        return texture;
+      };
+
       Object.values(BLOCK_DETAILS).forEach(details => {
         if (details.type === BlockType.AIR) return;
 
-        // Custom materials to look styled
-        materials[details.type] = new THREE.MeshLambertMaterial({
-          color: new THREE.Color(details.color),
-          transparent: details.isTransparent,
-          opacity: details.opacity ?? 1,
-          emissive: details.emissiveColor ? new THREE.Color(details.emissiveColor) : new THREE.Color('#000000'),
-          emissiveIntensity: details.emissiveColor ? 0.6 : 0,
-        });
+        if (details.type === BlockType.GRASS) {
+          const sideTex = createTextureFromCanvas(generateBlockTextureCanvas(BlockType.GRASS, 'side'));
+          const topTex = createTextureFromCanvas(generateBlockTextureCanvas(BlockType.GRASS, 'top'));
+          const bottomTex = createTextureFromCanvas(generateBlockTextureCanvas(BlockType.GRASS, 'bottom'));
+
+          const sideMat = new THREE.MeshLambertMaterial({ map: sideTex });
+          const topMat = new THREE.MeshLambertMaterial({ map: topTex });
+          const bottomMat = new THREE.MeshLambertMaterial({ map: bottomTex });
+
+          materials[BlockType.GRASS] = [
+            sideMat, // +X
+            sideMat, // -X
+            topMat,  // +Y
+            bottomMat, // -Y
+            sideMat, // +Z
+            sideMat, // -Z
+          ];
+        } else if (details.type === BlockType.WOOD) {
+          const sideTex = createTextureFromCanvas(generateBlockTextureCanvas(BlockType.WOOD, 'side'));
+          const topTex = createTextureFromCanvas(generateBlockTextureCanvas(BlockType.WOOD, 'top'));
+
+          const sideMat = new THREE.MeshLambertMaterial({ map: sideTex });
+          const topMat = new THREE.MeshLambertMaterial({ map: topTex });
+
+          materials[BlockType.WOOD] = [
+            sideMat, // +X
+            sideMat, // -X
+            topMat,  // +Y
+            topMat,  // -Y
+            sideMat, // +Z
+            sideMat, // -Z
+          ];
+        } else {
+          // Standard single-texture material for all other blocks
+          const sideTex = createTextureFromCanvas(generateBlockTextureCanvas(details.type, 'side'));
+          materials[details.type] = new THREE.MeshLambertMaterial({
+            map: sideTex,
+            transparent: details.isTransparent,
+            opacity: details.opacity ?? 1,
+            emissive: details.emissiveColor ? new THREE.Color(details.emissiveColor) : new THREE.Color('#000000'),
+            emissiveIntensity: details.emissiveColor ? 0.65 : 0,
+          });
+        }
       });
     };
     createVoxelMaterials();
@@ -260,31 +308,33 @@ export default function GameCanvas({
 
       const currentBlocks = blocksRef.current;
 
-      // Scan local radius around player
+      // Scan local radius around player - limit Y range relative to player position to speed up scan
+      const minY = Math.max(-22, pY - 16);
+      const maxY = Math.min(32, pY + 16);
+
       for (let x = pX - viewRadius; x <= pX + viewRadius; x++) {
         for (let z = pZ - viewRadius; z <= pZ + viewRadius; z++) {
-          for (let y = -22; y <= 32; y++) {
+          for (let y = minY; y <= maxY; y++) {
             const key = `${x},${y},${z}`;
             const type = currentBlocks[key];
 
             if (type && type !== BlockType.AIR) {
-              // VOXEL OPTIMIZATION: Face culling / Air check
-              // We only render this block if at least one of its 6 neighboring blocks is AIR or transparent
-              const neighbors = [
-                `${x + 1},${y},${z}`,
-                `${x - 1},${y},${z}`,
-                `${x},${y + 1},${z}`,
-                `${x},${y - 1},${z}`,
-                `${x},${y},${z + 1}`,
-                `${x},${y},${z - 1}`,
-              ];
+              // VOXEL OPTIMIZATION: Direct inline face culling / Air check
+              // No array instantiation or closures to ensure maximum garbage collection performance and fps
+              const tRight = currentBlocks[`${x + 1},${y},${z}`];
+              const tLeft = currentBlocks[`${x - 1},${y},${z}`];
+              const tUp = currentBlocks[`${x},${y + 1},${z}`];
+              const tDown = currentBlocks[`${x},${y - 1},${z}`];
+              const tFront = currentBlocks[`${x},${y},${z + 1}`];
+              const tBack = currentBlocks[`${x},${y},${z - 1}`];
 
-              const isVisible = neighbors.some(nKey => {
-                const nType = currentBlocks[nKey];
-                if (!nType || nType === BlockType.AIR) return true;
-                const nDetails = BLOCK_DETAILS[nType as BlockType];
-                return nDetails && nDetails.isTransparent;
-              });
+              const isVisible = 
+                (!tRight || tRight === BlockType.AIR || BLOCK_DETAILS[tRight as BlockType]?.isTransparent) ||
+                (!tLeft || tLeft === BlockType.AIR || BLOCK_DETAILS[tLeft as BlockType]?.isTransparent) ||
+                (!tUp || tUp === BlockType.AIR || BLOCK_DETAILS[tUp as BlockType]?.isTransparent) ||
+                (!tDown || tDown === BlockType.AIR || BLOCK_DETAILS[tDown as BlockType]?.isTransparent) ||
+                (!tFront || tFront === BlockType.AIR || BLOCK_DETAILS[tFront as BlockType]?.isTransparent) ||
+                (!tBack || tBack === BlockType.AIR || BLOCK_DETAILS[tBack as BlockType]?.isTransparent);
 
               if (isVisible) {
                 typeCoordinates[type].push(new THREE.Vector3(x, y, z));
@@ -412,7 +462,7 @@ export default function GameCanvas({
     let yaw = 0;
 
     const onMouseMove = (e: MouseEvent) => {
-      if (isPausedRef.current || !pointerLocked) return;
+      if (isPausedRef.current || !pointerLockedRef.current) return;
 
       const sensitivity = 0.0022;
       yaw -= e.movementX * sensitivity;
@@ -430,6 +480,7 @@ export default function GameCanvas({
     const onPointerLockChange = () => {
       const locked = document.pointerLockElement === renderer.domElement;
       setPointerLocked(locked);
+      pointerLockedRef.current = locked;
     };
 
     renderer.domElement.addEventListener('click', () => {
@@ -597,7 +648,7 @@ export default function GameCanvas({
     };
 
     const handleMouseClick = (e: MouseEvent) => {
-      if (!pointerLocked && !isMobile) return;
+      if (!pointerLockedRef.current && !isMobile) return;
       e.preventDefault();
 
       if (e.button === 0) {
@@ -615,6 +666,8 @@ export default function GameCanvas({
     let vy = 0; // vertical velocity
     let isGrounded = false;
     let clock = new THREE.Clock();
+    let lastStatsUpdateTime = 0;
+    let lastSettingsUpdateTime = 0;
 
     const animate = () => {
       requestAnimationFrame(animate);
@@ -624,17 +677,26 @@ export default function GameCanvas({
       const delta = clock.getDelta();
       const currentStats = statsRef.current;
       const currentSettings = settingsRef.current;
+      const now = performance.now();
       
       // Dynamic Day/Night Cycle speed
       if (currentSettings.dayNightCycle) {
         const speed = currentSettings.cycleSpeed * 5;
-        onUpdateSettings(prev => {
-          const nextTime = (prev.timeOfDay + speed) % 24000;
-          return { ...prev, timeOfDay: nextTime };
-        });
+        // Update local object immediately for smooth 60fps rendering updates
+        currentSettings.timeOfDay = (currentSettings.timeOfDay + speed) % 24000;
         
-        // Adjust directional light colors
-        const t = currentSettings.timeOfDay;
+        // Throttled React state dispatch to avoid heavy rendering lag
+        if (now - lastSettingsUpdateTime > 500) {
+          onUpdateSettings(prev => ({
+            ...prev,
+            timeOfDay: currentSettings.timeOfDay
+          }));
+          lastSettingsUpdateTime = now;
+        }
+      }
+      
+      // Adjust directional light colors based on current timeOfDay
+      const t = currentSettings.timeOfDay;
         let skyColor = '#7dd3fc';
         let lightIntensity = 0.8;
 
@@ -663,7 +725,6 @@ export default function GameCanvas({
         }
         
         sunLight.intensity = lightIntensity;
-      }
 
       // Cave depth lighting effect - the deeper we dig, the darker it gets!
       const playerY = camera.position.y;
@@ -761,15 +822,14 @@ export default function GameCanvas({
       const resolveCollisions = (pos: THREE.Vector3, oldPos: THREE.Vector3) => {
         // Player Bounding Box size (height 1.8, width 0.5)
         const radius = 0.28;
-        const pHeight = 1.6;
 
-        // Check feet and eyes elevations
-        const testYLevels = [0.1, 0.8, pHeight];
+        // Check body and head elevations relative to camera Y (exclude floor beneath feet)
+        const testYLevels = [-1.0, 0.0];
 
         // 1. Check & Resolve X collision
         let collisionX = false;
         for (const dy of testYLevels) {
-          const testY = Math.round(oldPos.y - 1.0 + dy);
+          const testY = Math.round(oldPos.y + dy);
           const testX = Math.round(pos.x + Math.sign(pos.x - oldPos.x) * radius);
           const testZ = Math.round(oldPos.z);
           const blockKey = `${testX},${testY},${testZ}`;
@@ -787,7 +847,7 @@ export default function GameCanvas({
         // 2. Check & Resolve Z collision
         let collisionZ = false;
         for (const dy of testYLevels) {
-          const testY = Math.round(oldPos.y - 1.0 + dy);
+          const testY = Math.round(oldPos.y + dy);
           const testX = Math.round(pos.x);
           const testZ = Math.round(pos.z + Math.sign(pos.z - oldPos.z) * radius);
           const blockKey = `${testX},${testY},${testZ}`;
@@ -805,8 +865,8 @@ export default function GameCanvas({
         // 3. Check & Resolve Y collision (Grounded or ceiling ceiling)
         isGrounded = false;
         if (vy < 0) {
-          // Downward falling check
-          const feetY = Math.round(pos.y - 1.1);
+          // Downward falling check - Stable Math.round(pos.y - 1.5) to avoid infinite vibration
+          const feetY = Math.round(pos.y - 1.5);
           const testX = Math.round(pos.x);
           const testZ = Math.round(pos.z);
           const blockKey = `${testX},${feetY},${testZ}`;
@@ -847,19 +907,36 @@ export default function GameCanvas({
       // Apply coordinates update
       camera.position.copy(nextPos);
 
-      // Dispatch coordinate stats to UI slowly to avoid React heavy lag
-      if (Math.abs(camera.position.x - currentStats.position.x) > 0.1 ||
-          Math.abs(camera.position.y - currentStats.position.y) > 0.1 ||
-          Math.abs(camera.position.z - currentStats.position.z) > 0.1) {
-        onUpdateStats(prev => ({
-          ...prev,
-          position: { x: camera.position.x, y: camera.position.y, z: camera.position.z }
-        }));
+      // Update HUD DOM elements directly in the animation loop for buttery smooth 60fps display feedback
+      const xyzEl = document.getElementById('hud-xyz-coords');
+      const biomeEl = document.getElementById('hud-biome-name');
+      const depthEl = document.getElementById('hud-current-depth');
+      if (xyzEl) {
+        xyzEl.textContent = `XYZ: ${camera.position.x.toFixed(1)} / ${camera.position.y.toFixed(1)} / ${camera.position.z.toFixed(1)}`;
+      }
+      if (biomeEl) {
+        biomeEl.textContent = `Biome: ${camera.position.y < 5 ? 'Deepslate Caverns' : 'Emerald Plains'}`;
+      }
+      if (depthEl) {
+        depthEl.textContent = `LEVEL ${Math.floor(camera.position.y)}`;
+      }
+
+      // Dispatch coordinate stats to parent state slowly (every 1500ms) for background saving, eliminating React re-render stutters
+      if (now - lastStatsUpdateTime > 1500) {
+        if (Math.abs(camera.position.x - currentStats.position.x) > 0.1 ||
+            Math.abs(camera.position.y - currentStats.position.y) > 0.1 ||
+            Math.abs(camera.position.z - currentStats.position.z) > 0.1) {
+          onUpdateStats(prev => ({
+            ...prev,
+            position: { x: camera.position.x, y: camera.position.y, z: camera.position.z }
+          }));
+          lastStatsUpdateTime = now;
+        }
       }
 
       // Rebuild visible chunks column on large movements
       const lastCamPos = new THREE.Vector3(lastMapUpdatePos.x, lastMapUpdatePos.y, lastMapUpdatePos.z);
-      if (camera.position.distanceTo(lastCamPos) > 4.5) {
+      if (camera.position.distanceTo(lastCamPos) > 8.0) {
         updateRenderedBlocks();
         updateHUDMiniMap();
         lastMapUpdatePos.copy(camera.position);
@@ -956,7 +1033,17 @@ export default function GameCanvas({
       } catch (e) {}
 
       blockGeometry.dispose();
-      Object.values(materials).forEach(m => m.dispose());
+      Object.values(materials).forEach(m => {
+        if (Array.isArray(m)) {
+          m.forEach(subMat => {
+            if ((subMat as any).map) (subMat as any).map.dispose();
+            subMat.dispose();
+          });
+        } else if (m) {
+          if ((m as any).map) (m as any).map.dispose();
+          m.dispose();
+        }
+      });
       targetGeo.dispose();
       targetMat.dispose();
       renderer.dispose();
