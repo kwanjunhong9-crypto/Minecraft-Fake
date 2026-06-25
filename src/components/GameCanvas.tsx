@@ -4,7 +4,7 @@ import { Compass } from 'lucide-react';
 import { BlockType, BLOCK_DETAILS, GameSettings, PlayerStats } from '../types';
 import { PerlinNoise, SeededRandom } from '../utils/noise';
 import { playSound } from '../utils/audio';
-import { generateBlockTextureCanvas } from '../utils/textureGenerator';
+import { generateBlockTextureCanvas, generateCracksCanvas } from '../utils/textureGenerator';
 
 interface GameCanvasProps {
   playerStats: PlayerStats;
@@ -287,6 +287,73 @@ export default function GameCanvas({
     scene.add(targetBox);
     targetBox.visible = false;
 
+    // Pre-generate cracking textures
+    const crackTextures = [0.2, 0.4, 0.6, 0.8, 0.95].map(p => {
+      const canvas = generateCracksCanvas(p);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      return tex;
+    });
+
+    const getCrackTexture = (progress: number): THREE.CanvasTexture | null => {
+      if (progress < 0.15) return null;
+      if (progress < 0.35) return crackTextures[0];
+      if (progress < 0.55) return crackTextures[1];
+      if (progress < 0.75) return crackTextures[2];
+      if (progress < 0.9) return crackTextures[3];
+      return crackTextures[4];
+    };
+
+    // Cracks overlay box mesh
+    const cracksGeo = new THREE.BoxGeometry(1.008, 1.008, 1.008);
+    const cracksMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const cracksBox = new THREE.Mesh(cracksGeo, cracksMat);
+    scene.add(cracksBox);
+    cracksBox.visible = false;
+
+    // Drop item tracking resources
+    const dropGeometry = new THREE.BoxGeometry(0.24, 0.24, 0.24);
+    interface DroppedItem {
+      id: string;
+      mesh: THREE.Mesh;
+      type: BlockType;
+      createdAt: number;
+      velocity: THREE.Vector3;
+    }
+    const activeDroppedItems: DroppedItem[] = [];
+
+    const spawnDroppedItem = (x: number, y: number, z: number, type: BlockType) => {
+      const mat = materials[type];
+      if (!mat) return;
+      
+      const mesh = new THREE.Mesh(dropGeometry, mat);
+      mesh.position.set(x, y + 0.1, z);
+      
+      // Random upward/outward pop velocity
+      const velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.08,
+        0.12,
+        (Math.random() - 0.5) * 0.08
+      );
+      
+      scene.add(mesh);
+      activeDroppedItems.push({
+        id: Math.random().toString(),
+        mesh,
+        type,
+        createdAt: performance.now(),
+        velocity
+      });
+    };
+
     // Build/rebuild visible meshes
     const updateRenderedBlocks = () => {
       // Clear old meshes
@@ -484,10 +551,21 @@ export default function GameCanvas({
     };
 
     renderer.domElement.addEventListener('click', () => {
-      if (!isMobile) {
+      if (!isMobile && statsRef.current.health > 0) {
         renderer.domElement.requestPointerLock();
       }
     });
+
+    const handleRespawn = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const pos = customEvent.detail || { x: 0, y: 15, z: 0 };
+      camera.position.set(pos.x, pos.y, pos.z);
+      vy = 0;
+      peakY = null;
+      updateRenderedBlocks();
+      updateHUDMiniMap();
+    };
+    window.addEventListener('game-respawn', handleRespawn);
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -569,6 +647,36 @@ export default function GameCanvas({
       return null;
     };
 
+    // Dedicated block-break implementation
+    const performBlockBreak = (x: number, y: number, z: number, type: BlockType) => {
+      const key = `${x},${y},${z}`;
+      const isSurvival = statsRef.current.mode === 'survival';
+
+      // Play dynamic synthesized break sound
+      playSound.breakBlock(
+        type === BlockType.LEAVES ? 'leaves' : (type >= BlockType.COAL && type <= BlockType.REDSTONE ? 'ore' : 'stone'),
+        settingsRef.current.soundEnabled
+      );
+
+      // Edit world blocks map
+      onUpdateBlocks(prev => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+
+      // Survival collect logic
+      if (isSurvival) {
+        spawnDroppedItem(x, y, z, type);
+      }
+
+      // Sync and force visual meshes update immediately after click
+      setTimeout(() => {
+        updateRenderedBlocks();
+        updateHUDMiniMap();
+      }, 30);
+    };
+
     // BREAK AND BUILD CLICK ACTIONS
     const executeAction = (actionType: 'break' | 'place') => {
       if (isPausedRef.current) return;
@@ -581,31 +689,7 @@ export default function GameCanvas({
 
       if (actionType === 'break') {
         const { x, y, z, type } = target.targeted;
-        const key = `${x},${y},${z}`;
-
-        // Play dynamic synthesized break sound
-        const info = BLOCK_DETAILS[type as BlockType];
-        playSound.breakBlock(type === BlockType.LEAVES ? 'leaves' : (type >= BlockType.COAL && type <= BlockType.REDSTONE ? 'ore' : 'stone'), settingsRef.current.soundEnabled);
-
-        // Edit world blocks map
-        onUpdateBlocks(prev => {
-          const next = { ...prev };
-          delete next[key];
-          return next;
-        });
-
-        // Survival collect logic
-        if (isSurvival) {
-          if (type === BlockType.DIAMOND) {
-            playSound.mineRareOre(settingsRef.current.soundEnabled);
-          }
-          onUpdateStats(prev => {
-            const nextInv = { ...prev.inventory };
-            nextInv[type as BlockType] = (nextInv[type as BlockType] || 0) + 1;
-            return { ...prev, inventory: nextInv };
-          });
-        }
-
+        performBlockBreak(x, y, z, type as BlockType);
       } else if (actionType === 'place' && target.adjacent) {
         const { x, y, z } = target.adjacent;
         const key = `${x},${y},${z}`;
@@ -647,27 +731,218 @@ export default function GameCanvas({
       }, 30);
     };
 
-    const handleMouseClick = (e: MouseEvent) => {
+    // Mining variables
+    let isLeftMouseDown = false;
+    let isMobileMining = false;
+    let miningTarget: { x: number; y: number; z: number; type: BlockType } | null = null;
+    let miningProgress = 0; // 0.0 to 1.0
+    let lastMiningSoundTime = 0;
+
+    const handleMouseDown = (e: MouseEvent) => {
       if (!pointerLockedRef.current && !isMobile) return;
       e.preventDefault();
 
       if (e.button === 0) {
-        executeAction('break');
+        isLeftMouseDown = true;
+        isMobileMining = false; // Cancel mobile auto-mining if desktop click starts
+        
+        // In creative mode, break instantly on click
+        const target = getTargetedVoxel();
+        if (target && statsRef.current.mode === 'creative') {
+          performBlockBreak(target.targeted.x, target.targeted.y, target.targeted.z, target.targeted.type as BlockType);
+        }
       } else if (e.button === 2) {
+        isMobileMining = false; // cancel mining
         executeAction('place');
       }
     };
 
-    window.addEventListener('mousedown', handleMouseClick);
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) {
+        isLeftMouseDown = false;
+      }
+    };
+
+    const getBlockHardness = (type: BlockType): number => {
+      switch (type) {
+        case BlockType.TORCH:
+          return 0.05;
+        case BlockType.LEAVES:
+        case BlockType.GLASS:
+          return 0.15;
+        case BlockType.DIRT:
+        case BlockType.GRASS:
+          return 0.4;
+        case BlockType.PLANK:
+        case BlockType.WOOD:
+          return 0.8;
+        case BlockType.STONE:
+        case BlockType.COBBLESTONE:
+          return 1.4;
+        case BlockType.COAL:
+        case BlockType.IRON:
+        case BlockType.GOLD:
+        case BlockType.REDSTONE:
+          return 1.8;
+        case BlockType.DIAMOND:
+          return 2.2;
+        case BlockType.OBSIDIAN:
+          return 4.0;
+        default:
+          return 0.5;
+      }
+    };
+
+    const updateMining = (delta: number) => {
+      const target = getTargetedVoxel();
+      const isSurvival = statsRef.current.mode === 'survival';
+
+      // Check if we should be mining
+      const isMiningTriggerActive = isLeftMouseDown || isMobileMining;
+
+      if (!isSurvival || !isMiningTriggerActive || !target) {
+        // Clear mining progress
+        miningTarget = null;
+        miningProgress = 0;
+        cracksBox.visible = false;
+        return;
+      }
+
+      const { x, y, z, type } = target.targeted;
+
+      // If target changed, reset progress
+      if (
+        !miningTarget ||
+        miningTarget.x !== x ||
+        miningTarget.y !== y ||
+        miningTarget.z !== z
+      ) {
+        miningTarget = { x, y, z, type: type as BlockType };
+        miningProgress = 0;
+        lastMiningSoundTime = 0;
+      }
+
+      // Increment progress based on hardness
+      const hardness = getBlockHardness(type as BlockType);
+      const speed = 1 / hardness;
+      miningProgress = Math.min(1.0, miningProgress + delta * speed);
+
+      // Play mining crack sound occasionally
+      const now = performance.now();
+      if (now - lastMiningSoundTime > 250 && miningProgress < 1.0) {
+        playSound.breakBlock(
+          type === BlockType.LEAVES ? 'leaves' : (type >= BlockType.COAL && type <= BlockType.REDSTONE ? 'ore' : 'stone'),
+          settingsRef.current.soundEnabled
+        );
+        lastMiningSoundTime = now;
+      }
+
+      // Update cracking mesh
+      const crackTex = getCrackTexture(miningProgress);
+      if (crackTex) {
+        cracksBox.material.map = crackTex;
+        cracksBox.material.needsUpdate = true;
+        cracksBox.position.set(x, y, z);
+        cracksBox.visible = true;
+      } else {
+        cracksBox.visible = false;
+      }
+
+      // Complete break if progress reaches 1.0
+      if (miningProgress >= 1.0) {
+        performBlockBreak(x, y, z, type as BlockType);
+        miningTarget = null;
+        miningProgress = 0;
+        cracksBox.visible = false;
+        isMobileMining = false;
+      }
+    };
+
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
 
     // -------------------------------------------------------------------------
     // 7. PHYSICS ENGINE & CORE GAME LOOP
     // -------------------------------------------------------------------------
     let vy = 0; // vertical velocity
     let isGrounded = false;
+    let peakY: number | null = null;
     let clock = new THREE.Clock();
     let lastStatsUpdateTime = 0;
     let lastSettingsUpdateTime = 0;
+    let lastVoidDamageTime = 0;
+
+    const updateDroppedItems = (delta: number) => {
+      const now = performance.now();
+      const playerPos = camera.position.clone();
+      const playerBodyPos = playerPos.clone();
+      playerBodyPos.y -= 1.0; // Estimate player center of mass/feet
+
+      for (let i = activeDroppedItems.length - 1; i >= 0; i--) {
+        const item = activeDroppedItems[i];
+        
+        // Spin
+        item.mesh.rotation.y += 0.04;
+        item.mesh.rotation.x += 0.02;
+        
+        // Bobbing floating animation
+        const hoverOffset = Math.sin((now - item.createdAt) * 0.005) * 0.002;
+        item.mesh.position.y += hoverOffset;
+
+        const dist = item.mesh.position.distanceTo(playerBodyPos);
+        
+        if (dist < 3.2) {
+          // Magnetized: pull towards player
+          const flySpeed = 5.5 * delta;
+          item.mesh.position.lerp(playerBodyPos, flySpeed);
+          
+          if (dist < 0.9) {
+            // Pick up
+            scene.remove(item.mesh);
+            activeDroppedItems.splice(i, 1);
+            
+            // Add to inventory
+            onUpdateStats(prev => {
+              const nextInv = { ...prev.inventory };
+              nextInv[item.type] = (nextInv[item.type] || 0) + 1;
+              return { ...prev, inventory: nextInv };
+            });
+
+            // Play pick sound
+            playSound.click(settingsRef.current.soundEnabled);
+            if (item.type === BlockType.DIAMOND) {
+              playSound.mineRareOre(settingsRef.current.soundEnabled);
+            }
+
+            setTimeout(() => {
+              updateRenderedBlocks();
+              updateHUDMiniMap();
+            }, 30);
+            
+            continue;
+          }
+        } else {
+          // Normal physics for drop
+          item.velocity.y -= 0.006; // gravity
+          item.mesh.position.add(item.velocity);
+          
+          item.velocity.x *= 0.92;
+          item.velocity.z *= 0.92;
+
+          // Block collision under item
+          const blockX = Math.round(item.mesh.position.x);
+          const blockY = Math.round(item.mesh.position.y - 0.12);
+          const blockZ = Math.round(item.mesh.position.z);
+          const blockKey = `${blockX},${blockY},${blockZ}`;
+          const bType = blocksRef.current[blockKey];
+          
+          if (bType && BLOCK_DETAILS[bType as BlockType].isSolid) {
+            item.mesh.position.y = blockY + 0.5 + 0.12;
+            item.velocity.set(0, 0, 0);
+          }
+        }
+      }
+    };
 
     const animate = () => {
       requestAnimationFrame(animate);
@@ -675,6 +950,8 @@ export default function GameCanvas({
       if (isPausedRef.current) return;
 
       const delta = clock.getDelta();
+      updateMining(delta);
+      updateDroppedItems(delta);
       const currentStats = statsRef.current;
       const currentSettings = settingsRef.current;
       const now = performance.now();
@@ -754,6 +1031,21 @@ export default function GameCanvas({
       }
 
       // ---------------- Physics Resolution ----------------
+      // Force non-flying in survival mode
+      if (currentStats.mode === 'survival' && currentStats.isFlying) {
+        onUpdateStats(prev => ({ ...prev, isFlying: false }));
+        currentStats.isFlying = false;
+      }
+
+      // Track peak height for fall damage
+      if (currentStats.mode === 'survival' && !currentStats.isFlying && !isGrounded) {
+        if (peakY === null || camera.position.y > peakY) {
+          peakY = camera.position.y;
+        }
+      } else {
+        peakY = null;
+      }
+
       const moveSpeed = currentSettings.superSpeed ? 0.16 : 0.075;
       const flySpeed = currentSettings.superSpeed ? 0.22 : 0.12;
       const moveDirection = new THREE.Vector3();
@@ -877,6 +1169,22 @@ export default function GameCanvas({
             vy = 0;
             isGrounded = true;
 
+            // Resolve fall damage
+            if (currentStats.mode === 'survival' && peakY !== null) {
+              const fallDistance = peakY - pos.y;
+              if (fallDistance >= 4.0) {
+                const damage = Math.round((fallDistance - 3) * 10);
+                if (damage > 0) {
+                  onUpdateStats(prev => ({
+                    ...prev,
+                    health: Math.max(0, prev.health - damage)
+                  }));
+                  playSound.hurt(currentSettings.soundEnabled);
+                }
+              }
+              peakY = null; // Reset peak
+            }
+
             // Damage / Fall injury checks in survival
             if (currentStats.mode === 'survival' && currentStats.health < 100 && rng.range(0, 100) > 99.8) {
               onUpdateStats(prev => ({ ...prev, health: Math.min(100, prev.health + 1) }));
@@ -919,6 +1227,18 @@ export default function GameCanvas({
       }
       if (depthEl) {
         depthEl.textContent = `LEVEL ${Math.floor(camera.position.y)}`;
+      }
+
+      // Void damage when falling out of the world
+      if (currentStats.mode === 'survival' && camera.position.y < -35) {
+        if (now - lastVoidDamageTime > 1000) {
+          onUpdateStats(prev => ({
+            ...prev,
+            health: Math.max(0, prev.health - 25)
+          }));
+          playSound.hurt(currentSettings.soundEnabled);
+          lastVoidDamageTime = now;
+        }
       }
 
       // Dispatch coordinate stats to parent state slowly (every 1500ms) for background saving, eliminating React re-render stutters
@@ -973,8 +1293,16 @@ export default function GameCanvas({
       if (!mobileAction) return;
 
       if (mobileAction === 'break') {
-        executeAction('break');
+        const target = getTargetedVoxel();
+        if (target) {
+          if (statsRef.current.mode === 'creative') {
+            performBlockBreak(target.targeted.x, target.targeted.y, target.targeted.z, target.targeted.type as BlockType);
+          } else {
+            isMobileMining = true; // Trigger auto-mining on survival mode
+          }
+        }
       } else if (mobileAction === 'place') {
+        isMobileMining = false; // Cancel mining
         executeAction('place');
       } else if (mobileAction === 'jump') {
         // Trigger temporary jump keystroke
@@ -1014,10 +1342,12 @@ export default function GameCanvas({
     return () => {
       // Clean up meshes & scene objects
       window.removeEventListener('resize', onWindowResize);
+      window.removeEventListener('game-respawn', handleRespawn);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mousedown', handleMouseClick);
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('pointerlockchange', onPointerLockChange);
       
       if (isMobile) {
@@ -1046,6 +1376,13 @@ export default function GameCanvas({
       });
       targetGeo.dispose();
       targetMat.dispose();
+      cracksGeo.dispose();
+      cracksMat.dispose();
+      dropGeometry.dispose();
+      activeDroppedItems.forEach(item => {
+        scene.remove(item.mesh);
+      });
+      crackTextures.forEach(t => t.dispose());
       renderer.dispose();
     };
   }, [seed, isMobile]); // Rebuild 3D engine only on seed switch or mobile mode toggle

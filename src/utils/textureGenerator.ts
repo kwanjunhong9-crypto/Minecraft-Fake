@@ -520,3 +520,66 @@ export const generateBlockTextureCanvas = (type: BlockType, face: 'top' | 'side'
 
   return canvas;
 };
+
+export const generateCracksCanvas = (progress: number): HTMLCanvasElement => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, 16, 16);
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+
+  // Stage 1 (progress >= 0.15)
+  if (progress >= 0.15) {
+    ctx.fillRect(7, 7, 2, 2);
+    ctx.fillRect(6, 8, 1, 1);
+    ctx.fillRect(9, 6, 1, 1);
+  }
+  // Stage 2 (progress >= 0.35)
+  if (progress >= 0.35) {
+    ctx.fillRect(5, 9, 1, 1);
+    ctx.fillRect(4, 10, 1, 1);
+    ctx.fillRect(10, 5, 1, 1);
+    ctx.fillRect(11, 4, 1, 1);
+    ctx.fillRect(8, 9, 1, 1);
+    ctx.fillRect(9, 10, 1, 1);
+  }
+  // Stage 3 (progress >= 0.55)
+  if (progress >= 0.55) {
+    ctx.fillRect(3, 11, 1, 1);
+    ctx.fillRect(2, 11, 1, 1);
+    ctx.fillRect(12, 3, 2, 1);
+    ctx.fillRect(7, 10, 1, 2);
+    ctx.fillRect(6, 12, 1, 1);
+    ctx.fillRect(10, 11, 2, 1);
+  }
+  // Stage 4 (progress >= 0.75)
+  if (progress >= 0.75) {
+    ctx.fillRect(1, 12, 1, 1);
+    ctx.fillRect(0, 13, 1, 1);
+    ctx.fillRect(14, 2, 2, 1);
+    ctx.fillRect(5, 13, 1, 2);
+    ctx.fillRect(8, 12, 2, 1);
+    ctx.fillRect(11, 12, 1, 2);
+    ctx.fillRect(12, 14, 1, 1);
+    ctx.fillRect(4, 5, 2, 1);
+    ctx.fillRect(3, 4, 1, 1);
+  }
+  // Stage 5 (progress >= 0.9)
+  if (progress >= 0.9) {
+    ctx.fillRect(1, 4, 2, 1);
+    ctx.fillRect(0, 3, 1, 1);
+    ctx.fillRect(11, 15, 1, 1);
+    ctx.fillRect(5, 15, 1, 1);
+    ctx.fillRect(13, 11, 1, 1);
+    ctx.fillRect(14, 10, 2, 1);
+    ctx.fillRect(1, 14, 2, 1);
+    ctx.fillRect(14, 0, 1, 2);
+  }
+
+  return canvas;
+};

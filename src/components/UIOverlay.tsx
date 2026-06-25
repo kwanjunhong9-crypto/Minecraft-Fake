@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Heart,
@@ -22,6 +22,7 @@ import {
   Sun,
   Moon,
   Zap,
+  Skull,
 } from 'lucide-react';
 import { BlockType, BLOCK_DETAILS, PlayerStats, GameSettings, WorldSave } from '../types';
 import { playSound } from '../utils/audio';
@@ -76,6 +77,24 @@ export default function UIOverlay({
   const [importText, setImportText] = useState('');
   const [exportText, setExportText] = useState('');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    const handleOpenInventory = () => {
+      setActiveTab('inventory');
+    };
+    window.addEventListener('open-inventory', handleOpenInventory);
+    return () => window.removeEventListener('open-inventory', handleOpenInventory);
+  }, []);
+
+  const isDead = playerStats.health <= 0 && playerStats.mode === 'survival';
+
+  useEffect(() => {
+    if (isDead) {
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+    }
+  }, [isDead]);
 
   const hotbarSlots: BlockType[] = [
     BlockType.GRASS,
@@ -422,9 +441,13 @@ export default function UIOverlay({
                   {activeTab === 'inventory' && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                       <div>
-                        <h3 className="text-base font-bold text-white mb-1">📦 物資方塊庫與圖鑑</h3>
+                        <h3 className="text-base font-bold text-white mb-1">
+                          {playerStats.mode === 'survival' ? '🎒 我的生存背包 (開採收集)' : '📦 創造模式方塊庫 (無限方塊)'}
+                        </h3>
                         <p className="text-xs text-zinc-400">
-                          點擊下方任何方塊將其放入你的熱鍵選擇欄。同時可以查閱該方塊的硬度與特性。
+                          {playerStats.mode === 'survival' 
+                            ? '查閱目前背包擁有的資源。點擊你收集到的方塊將其裝備到手持狀態。' 
+                            : '點擊下方任何方塊將其放入你的熱鍵選擇欄。同時可以查閱該方塊的硬度與特性。'}
                         </p>
                       </div>
 
@@ -433,30 +456,53 @@ export default function UIOverlay({
                           .filter(b => b.type !== BlockType.AIR)
                           .map(block => {
                             const isSelected = playerStats.selectedBlock === block.type;
+                            const count = playerStats.inventory[block.type] || 0;
+                            const isSurvival = playerStats.mode === 'survival';
+                            const hasItem = !isSurvival || count > 0;
+
                             return (
                               <button
                                 key={block.type}
-                                onClick={() => handleSlotClick(block.type)}
+                                onClick={() => {
+                                  if (!hasItem) {
+                                    triggerNotification(`⚠️ 你目前背包裡沒有【${block.name}】，請先去世界裡挖掘開採！`, 'error');
+                                    return;
+                                  }
+                                  handleSlotClick(block.type);
+                                  triggerNotification(`已手持：${block.name}！`);
+                                }}
                                 className={`text-left p-3 rounded-xl border flex gap-3 transition-all ${
                                   isSelected
                                     ? 'bg-cyan-900/40 border-cyan-400 shadow-lg shadow-cyan-950/40'
-                                    : 'bg-zinc-950/40 border-white/5 hover:border-white/20'
+                                    : hasItem
+                                      ? 'bg-zinc-950/40 border-white/5 hover:border-white/20'
+                                      : 'bg-zinc-950/10 border-white/5 opacity-45 cursor-not-allowed'
                                 }`}
                               >
                                 {/* Pseudo 3D Block Visual */}
-                                <BlockSprite type={block.type} size="md" />
+                                <div className={!hasItem ? 'opacity-30 saturate-50' : ''}>
+                                  <BlockSprite type={block.type} size="md" />
+                                </div>
 
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5">
                                     <span className="font-semibold text-xs truncate">{block.name}</span>
-                                    <span className={`text-[8px] px-1 py-0.5 rounded-sm leading-none font-bold ${
-                                      block.rarity === 'Legendary' ? 'bg-purple-900 text-purple-300' :
-                                      block.rarity === 'Rare' ? 'bg-cyan-950 text-cyan-300' :
-                                      block.rarity === 'Uncommon' ? 'bg-zinc-800 text-amber-300' :
-                                      'bg-zinc-800 text-zinc-400'
-                                    }`}>
-                                      {block.rarity}
-                                    </span>
+                                    {isSurvival ? (
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold font-mono ${
+                                        count > 0 ? 'bg-cyan-950 text-cyan-300' : 'bg-rose-950/50 text-rose-400'
+                                      }`}>
+                                        {count > 0 ? `×${count}` : '未擁有'}
+                                      </span>
+                                    ) : (
+                                      <span className={`text-[8px] px-1 py-0.5 rounded-sm leading-none font-bold ${
+                                        block.rarity === 'Legendary' ? 'bg-purple-900 text-purple-300' :
+                                        block.rarity === 'Rare' ? 'bg-cyan-950 text-cyan-300' :
+                                        block.rarity === 'Uncommon' ? 'bg-zinc-800 text-amber-300' :
+                                        'bg-zinc-800 text-zinc-400'
+                                      }`}>
+                                        {block.rarity}
+                                      </span>
+                                    )}
                                   </div>
                                   <p className="text-[10px] text-zinc-400 truncate mt-0.5">{block.description}</p>
                                   <div className="flex items-center gap-1 mt-1 text-[9px] text-zinc-500 font-mono">
@@ -871,6 +917,8 @@ export default function UIOverlay({
               const details = BLOCK_DETAILS[type];
               const isSelected = playerStats.selectedBlock === type;
               const count = playerStats.inventory[type] || 0;
+              const isSurvival = playerStats.mode === 'survival';
+              const isEmpty = isSurvival && count === 0;
 
               return (
                 <button
@@ -880,11 +928,13 @@ export default function UIOverlay({
                     isSelected
                       ? 'bg-white/10 border-2 border-cyan-400 scale-110 shadow-[0_0_15px_rgba(34,211,238,0.35)] z-10'
                       : 'bg-white/5 border border-white/10 hover:bg-white/10'
-                  }`}
+                  } ${isEmpty ? 'bg-black/40 border-dashed border-white/5' : ''}`}
                   title={`${details.name} (鍵盤數字鍵 ${index + 1})`}
                 >
                   {/* Pseudo-3D Voxel representation */}
-                  <BlockSprite type={type} size="md" />
+                  <div className={isEmpty ? 'opacity-25 scale-75 blur-[0.5px] transition-all' : 'transition-all'}>
+                    <BlockSprite type={type} size="md" />
+                  </div>
 
                   {/* Slot Number Label */}
                   <span className="absolute bottom-0.5 right-1.5 text-[9px] font-bold text-white opacity-65 font-mono">
@@ -892,8 +942,10 @@ export default function UIOverlay({
                   </span>
 
                   {/* Block Count in Survival */}
-                  {playerStats.mode === 'survival' && count > 0 && (
-                    <span className="absolute top-1 left-1 text-[9px] font-bold text-cyan-300 font-mono bg-black/70 px-1 rounded-[3px] border border-white/5">
+                  {isSurvival && (
+                    <span className={`absolute top-1 left-1 text-[9px] font-bold font-mono bg-black/70 px-1 rounded-[3px] border border-white/5 ${
+                      count > 0 ? 'text-cyan-300' : 'text-rose-500'
+                    }`}>
                       {count}
                     </span>
                   )}
@@ -980,6 +1032,50 @@ export default function UIOverlay({
           </div>
         </div>
       )}
+
+      {/* DEATH OVERLAY WITH RESPAWN BUTTON */}
+      <AnimatePresence>
+        {isDead && (
+          <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 pointer-events-auto">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="text-center max-w-md w-full bg-red-950/20 border border-red-500/20 p-8 rounded-2xl shadow-[0_0_50px_rgba(239,68,68,0.25)] flex flex-col items-center"
+            >
+              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mb-5 animate-pulse">
+                <Skull className="w-8 h-8 text-red-500" />
+              </div>
+              
+              <h2 className="text-3xl font-black tracking-widest text-red-500 mb-2 filter drop-shadow-[0_2px_10px_rgba(239,68,68,0.4)]">
+                你死亡了！
+              </h2>
+              
+              <p className="text-zinc-400 text-xs leading-relaxed mb-8 max-w-xs">
+                所有的心都扣完了。在地底世界的冒險中，生命值已經歸零。別氣餒，重生後你可以再次繼續你的旅程！
+              </p>
+
+              <button
+                onClick={() => {
+                  playSound.click(settings.soundEnabled);
+                  onUpdateStats(prev => ({
+                    ...prev,
+                    health: 100,
+                    oxygen: 100,
+                    position: { x: 0, y: 15, z: 0 },
+                  }));
+                  window.dispatchEvent(new CustomEvent('game-respawn', { detail: { x: 0, y: 15, z: 0 } }));
+                  triggerNotification('🌟 復活成功！生命值已完全恢復！', 'success');
+                }}
+                className="w-full bg-red-500 hover:bg-red-400 text-black font-extrabold text-sm py-3.5 px-6 rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.4)] hover:shadow-[0_0_30px_rgba(239,68,68,0.6)] transition-all hover:scale-[1.03] active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>立即重生 / 復活</span>
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -35,14 +35,14 @@ export default function App() {
     mode: 'survival',
     inventory: {
       [BlockType.AIR]: 0,
-      [BlockType.GRASS]: 64,
-      [BlockType.DIRT]: 64,
-      [BlockType.STONE]: 64,
-      [BlockType.PLANK]: 64,
-      [BlockType.GLASS]: 32,
-      [BlockType.TORCH]: 16,
-      [BlockType.COBBLESTONE]: 64,
-      [BlockType.WOOD]: 32,
+      [BlockType.GRASS]: 0,
+      [BlockType.DIRT]: 0,
+      [BlockType.STONE]: 0,
+      [BlockType.PLANK]: 0,
+      [BlockType.GLASS]: 0,
+      [BlockType.TORCH]: 0,
+      [BlockType.COBBLESTONE]: 0,
+      [BlockType.WOOD]: 0,
       [BlockType.LEAVES]: 0,
       [BlockType.COAL]: 0,
       [BlockType.IRON]: 0,
@@ -238,16 +238,44 @@ export default function App() {
     });
   };
 
-  // Keyboard shortcut for pausing (ESC)
+  // Keyboard shortcut for pausing (ESC) and inventory (E)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (screen !== 'playing') return;
+
+      // Ignore shortcuts if typing in any text input or textarea
+      if (
+        document.activeElement?.tagName === 'INPUT' ||
+        document.activeElement?.tagName === 'TEXTAREA'
+      ) {
+        return;
+      }
+
       if (e.key === 'Escape') {
         playSound.click(settings.soundEnabled);
         setGamePaused(prev => {
           const next = !prev;
           // Auto-save on pausing
           if (next) saveWorldState();
+          return next;
+        });
+      }
+
+      if (e.key.toLowerCase() === 'e') {
+        playSound.click(settings.soundEnabled);
+        setGamePaused(prev => {
+          const next = !prev;
+          if (next) {
+            saveWorldState();
+            // Exit pointer lock to release mouse
+            if (document.pointerLockElement) {
+              document.exitPointerLock();
+            }
+            // Trigger UIOverlay to display the inventory tab
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('open-inventory'));
+            }, 0);
+          }
           return next;
         });
       }
@@ -285,7 +313,24 @@ export default function App() {
         health: 100,
         oxygen: 100,
         mode: mode,
-        inventory: {
+        inventory: mode === 'survival' ? {
+          [BlockType.AIR]: 0,
+          [BlockType.GRASS]: 0,
+          [BlockType.DIRT]: 0,
+          [BlockType.STONE]: 0,
+          [BlockType.PLANK]: 0,
+          [BlockType.GLASS]: 0,
+          [BlockType.TORCH]: 0,
+          [BlockType.COBBLESTONE]: 0,
+          [BlockType.WOOD]: 0,
+          [BlockType.LEAVES]: 0,
+          [BlockType.COAL]: 0,
+          [BlockType.IRON]: 0,
+          [BlockType.GOLD]: 0,
+          [BlockType.DIAMOND]: 0,
+          [BlockType.REDSTONE]: 0,
+          [BlockType.OBSIDIAN]: 0,
+        } : {
           [BlockType.AIR]: 0,
           [BlockType.GRASS]: 64,
           [BlockType.DIRT]: 64,
@@ -295,13 +340,13 @@ export default function App() {
           [BlockType.TORCH]: 16,
           [BlockType.COBBLESTONE]: 64,
           [BlockType.WOOD]: 32,
-          [BlockType.LEAVES]: 0,
-          [BlockType.COAL]: 0,
-          [BlockType.IRON]: 0,
-          [BlockType.GOLD]: 0,
-          [BlockType.DIAMOND]: 0,
-          [BlockType.REDSTONE]: 0,
-          [BlockType.OBSIDIAN]: 0,
+          [BlockType.LEAVES]: 64,
+          [BlockType.COAL]: 64,
+          [BlockType.IRON]: 64,
+          [BlockType.GOLD]: 64,
+          [BlockType.DIAMOND]: 64,
+          [BlockType.REDSTONE]: 64,
+          [BlockType.OBSIDIAN]: 64,
         },
         selectedBlock: BlockType.GRASS,
         position: { x: 0, y: 15, z: 0 },
@@ -595,7 +640,7 @@ export default function App() {
             settings={settings}
             worldBlocks={worldBlocks}
             seed={activeWorld?.seed || '0'}
-            isPaused={gamePaused}
+            isPaused={gamePaused || (playerStats.health <= 0 && playerStats.mode === 'survival')}
             isMobile={isMobile}
             mobileJoystick={mobileJoystick}
             mobileAction={mobileAction}
