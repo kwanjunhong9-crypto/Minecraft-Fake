@@ -1,5 +1,5 @@
 {
-  "name": "CaveCraft Sandbox",
+  "name": "CaveCraft Sandbox 1.0 beta",
   "description": "A 3D Minecraft-like sandbox game for building, editing, and exploring deep cave systems.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

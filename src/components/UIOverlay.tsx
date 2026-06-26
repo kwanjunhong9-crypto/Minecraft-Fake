@@ -71,19 +71,37 @@ export default function UIOverlay({
   isMobile,
   miniMapGrid,
 }: UIOverlayProps) {
-  const [activeTab, setActiveTab] = useState<'inventory' | 'settings' | 'worlds' | 'help'>('help');
+  const [menuView, setMenuView] = useState<'main' | 'settings' | 'worlds' | 'help' | 'inventory'>('main');
   const [newWorldName, setNewWorldName] = useState('');
   const [newWorldSeed, setNewWorldSeed] = useState('');
   const [importText, setImportText] = useState('');
   const [exportText, setExportText] = useState('');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [hideHUD, setHideHUD] = useState(false);
 
   useEffect(() => {
     const handleOpenInventory = () => {
-      setActiveTab('inventory');
+      setMenuView('inventory');
     };
     window.addEventListener('open-inventory', handleOpenInventory);
     return () => window.removeEventListener('open-inventory', handleOpenInventory);
+  }, []);
+
+  useEffect(() => {
+    if (gamePaused) {
+      setMenuView('main');
+    }
+  }, [gamePaused]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F1' || e.key === 'f1') {
+        e.preventDefault();
+        setHideHUD(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const isDead = playerStats.health <= 0 && playerStats.mode === 'survival';
@@ -156,6 +174,52 @@ export default function UIOverlay({
     );
   };
 
+  const splashTexts = [
+    "自由建造，發掘奧秘！",
+    "8-Bit 像素懷舊風格！",
+    "無限地底迴廊！",
+    "探索、挖掘、生存！",
+    "F1 可以隱藏整個 HUD 喔！",
+    "有火把就不怕黑了！",
+    "不要掉進虛空！",
+    "鑽石礦就在地底深處！",
+    "WebGL 方塊沙盒世界！",
+    "創造無限可能！"
+  ];
+
+  const [splashText, setSplashText] = useState(() => splashTexts[Math.floor(Math.random() * splashTexts.length)]);
+
+  useEffect(() => {
+    if (gamePaused) {
+      setSplashText(splashTexts[Math.floor(Math.random() * splashTexts.length)]);
+    }
+  }, [gamePaused]);
+
+  const tips = [
+    "💡 提示: 往地下深處挖掘可以找到稀有的鑽石礦！",
+    "💡 提示: 在石壁上放置火把，可以點亮漆黑的洞穴！",
+    "💡 提示: 連按兩次空白鍵或按下 F 鍵即可啟動飛行模式！",
+    "💡 提示: 在生存模式下，高處墜落會受到傷害，注意安全！",
+    "💡 提示: 點擊背包中的方塊即可切換手持方塊種類！",
+    "💡 提示: 掉落進虛空會持續受到虛空傷害，請儘快往上飛！",
+    "💡 提示: 創造模式下點選圖鑑方塊，能直接加入熱鍵欄！"
+  ];
+
+  const showRandomTip = () => {
+    playSound.click(settings.soundEnabled);
+    const rand = tips[Math.floor(Math.random() * tips.length)];
+    triggerNotification(rand, 'success');
+  };
+
+  const handleSaveAndQuit = () => {
+    playSound.click(settings.soundEnabled);
+    onSaveWorld('AutoSave');
+    triggerNotification('💾 存檔成功！已自動保存冒險數據！', 'success');
+    setTimeout(() => {
+      onTogglePause();
+    }, 600);
+  };
+
   // Convert game ticks to friendly 24h clock: 0=12:00, 6000=18:00, 12000=00:00, 18000=06:00
   const getFriendlyTime = (ticks: number) => {
     const adjusted = (ticks + 12000) % 24000;
@@ -175,186 +239,156 @@ export default function UIOverlay({
       
       {/* TOP STATUS BAR */}
       <div id="hud-top-bar" className="w-full p-6 flex justify-between items-start pointer-events-auto z-20">
-        {/* Left Side: Game Status (Immersive style) */}
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-3 bg-black/40 backdrop-blur-md border border-white/10 px-4 py-2 rounded-lg shadow-lg">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] relative">
-              <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-75" />
-            </div>
-            <span className="text-xs font-mono tracking-widest uppercase opacity-70">Server Active: Cave Exploration Alpha</span>
-          </div>
-          <div className="mt-2 font-mono text-[10px] text-white/40 space-y-0.5 uppercase pl-1">
-            <p id="hud-xyz-coords">XYZ: {playerStats.position.x.toFixed(1)} / {playerStats.position.y.toFixed(1)} / {playerStats.position.z.toFixed(1)}</p>
-            <p id="hud-biome-name">Biome: {playerStats.position.y < 5 ? 'Deepslate Caverns' : 'Emerald Plains'}</p>
-            <p>FPS: {140 + Math.floor(Math.sin(Date.now() / 2000) * 3)}</p>
-          </div>
-        </div>
+        {/* Left Side: Empty since we removed Server Active & XYZ Stats */}
+        <div />
 
-        {/* Right Side: Navigation, Stats & MiniMap */}
-        <div className="flex gap-4 items-start">
-          {/* Immersive HUD stats card: Current Depth & Materials */}
-          <div className="bg-black/40 backdrop-blur-md border border-white/10 p-3 rounded-lg flex gap-4 shadow-lg">
-            <div className="text-right">
-              <p className="text-[10px] uppercase opacity-50">Current Depth</p>
-              <p id="hud-current-depth" className="text-xl font-bold text-cyan-400 font-mono leading-tight">LEVEL {currentDepthLevel}</p>
-            </div>
-            <div className="w-[1px] bg-white/10"></div>
-            <div className="text-right">
-              <p className="text-[10px] uppercase opacity-50">Materials</p>
-              <p className="text-xl font-bold text-orange-400 font-mono leading-tight">{materialsCount}</p>
-            </div>
-          </div>
-
-          {/* Minimap / Cave Radar */}
-          {settings.showMinimap && (
-            <div id="minimap-panel" className="flex flex-col items-center bg-black/40 backdrop-blur-md border border-white/10 p-2 rounded-lg shadow-xl">
-              <div className="text-[10px] font-mono text-zinc-400 tracking-wider mb-1 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                洞穴雷達 (H-Slice)
-              </div>
-              <div className="grid gap-[1px] bg-black/50 p-1 rounded-sm border border-white/5 overflow-hidden">
-                {miniMapGrid.map((row, rIdx) => (
-                  <div key={rIdx} className="flex gap-[1px]">
-                    {row.map((cellType, cIdx) => {
-                      // Player is in the center (grid is e.g. 15x15, center is (7,7))
-                      const isCenter = rIdx === 7 && cIdx === 7;
-                      let bg = 'bg-zinc-950/20'; // Air
-                      if (isCenter) bg = 'bg-cyan-400 border border-white scale-125 z-1 shadow-[0_0_6px_#22d3ee]';
-                      else if (cellType === BlockType.STONE) bg = 'bg-zinc-600/90';
-                      else if (cellType === BlockType.GRASS) bg = 'bg-emerald-600/90';
-                      else if (cellType === BlockType.DIRT) bg = 'bg-amber-800/90';
-                      else if (cellType === BlockType.TORCH) bg = 'bg-amber-400 animate-pulse shadow-[0_0_4px_#fbbf24]';
-                      else if (cellType >= BlockType.COAL && cellType <= BlockType.REDSTONE) {
-                        // Ore
-                        if (cellType === BlockType.DIAMOND) bg = 'bg-cyan-500 shadow-cyan-500/50';
-                        else if (cellType === BlockType.GOLD) bg = 'bg-amber-400';
-                        else if (cellType === BlockType.REDSTONE) bg = 'bg-red-500';
-                        else if (cellType === BlockType.IRON) bg = 'bg-orange-300';
-                        else bg = 'bg-zinc-800'; // Coal
-                      }
-
-                      return (
-                        <div
-                          key={cIdx}
-                          className={`w-2.5 h-2.5 rounded-[1px] ${bg}`}
-                          title={`Block relative: ${cIdx-7}, ${rIdx-7}`}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-3 text-[9px] text-zinc-400 mt-1 font-mono">
-                <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 bg-zinc-600 rounded-sm inline-block" /> 石頭</span>
-                <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 bg-zinc-950/20 border border-zinc-800 rounded-sm inline-block" /> 洞穴</span>
-                <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 bg-cyan-400 rounded-sm inline-block" /> 你</span>
-              </div>
-            </div>
-          )}
-
-          {/* Action Button Menu */}
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={onTogglePause}
-              className="pointer-events-auto flex items-center gap-2 bg-gradient-to-r from-cyan-650 to-blue-650 hover:from-cyan-600 hover:to-blue-600 text-white font-semibold text-xs py-2.5 px-4 rounded-lg shadow-lg border border-white/10 active:scale-95 transition-all backdrop-blur-md"
-            >
-              <Settings className="w-4 h-4" />
-              <span>控制與選單</span>
-            </button>
-            <button
-              onClick={handleSave}
-              className="pointer-events-auto flex items-center justify-center gap-1.5 bg-black/40 backdrop-blur-md hover:bg-black/60 border border-white/10 text-xs py-2 px-3 rounded-lg active:scale-95 transition-all"
-            >
-              <FileDown className="w-3.5 h-3.5 text-emerald-400" />
-              <span>快速存檔</span>
-            </button>
-          </div>
-        </div>
+        {/* Right Side: Empty since we removed Quick Save and Controls buttons */}
+        <div />
       </div>
 
       {/* PAUSE / SETTINGS / WORLDS MENU MODAL */}
       <AnimatePresence>
         {gamePaused && (
-          <div id="game-menu-modal" className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 pointer-events-auto">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-zinc-900 border border-white/15 w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[85vh]"
-            >
-              {/* Modal Header */}
-              <div className="bg-zinc-950 p-4 border-b border-white/10 flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-cyan-900/40 border border-cyan-500/20 rounded-lg">
-                    <Compass className="w-6 h-6 text-cyan-400" />
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-lg leading-tight">CaveCraft 冒險控制台</h2>
-                    <p className="text-xs text-zinc-400">自由建造、發掘奧秘、探索地底無限迴廊</p>
-                  </div>
-                </div>
-                <button
-                  onClick={onTogglePause}
-                  className="bg-cyan-600 hover:bg-cyan-500 text-white px-5 py-2 rounded-lg font-bold text-sm shadow-md shadow-cyan-900/30 active:scale-95 transition-all flex items-center gap-2"
-                >
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>回到遊戲 (ESC)</span>
-                </button>
-              </div>
-
-              {/* Modal Content Split */}
-              <div className="flex flex-1 overflow-hidden">
-                {/* Left Tabs bar */}
-                <div className="w-52 bg-zinc-950/50 border-r border-white/5 p-3 flex flex-col gap-1.5 justify-between">
-                  <div className="flex flex-col gap-1.5">
-                    <button
-                      onClick={() => { playSound.click(settings.soundEnabled); setActiveTab('help'); }}
-                      className={`w-full text-left px-4 py-3 rounded-lg text-xs font-semibold flex items-center gap-3 transition-colors ${
-                        activeTab === 'help' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-zinc-400 hover:bg-white/5 hover:text-white border border-transparent'
-                      }`}
-                    >
-                      <Info className="w-4 h-4" />
-                      <span>控制說明與提示</span>
-                    </button>
-                    <button
-                      onClick={() => { playSound.click(settings.soundEnabled); setActiveTab('inventory'); }}
-                      className={`w-full text-left px-4 py-3 rounded-lg text-xs font-semibold flex items-center gap-3 transition-colors ${
-                        activeTab === 'inventory' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-zinc-400 hover:bg-white/5 hover:text-white border border-transparent'
-                      }`}
-                    >
-                      <Briefcase className="w-4 h-4" />
-                      <span>創造物資與圖鑑</span>
-                    </button>
-                    <button
-                      onClick={() => { playSound.click(settings.soundEnabled); setActiveTab('settings'); }}
-                      className={`w-full text-left px-4 py-3 rounded-lg text-xs font-semibold flex items-center gap-3 transition-colors ${
-                        activeTab === 'settings' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-zinc-400 hover:bg-white/5 hover:text-white border border-transparent'
-                      }`}
-                    >
-                      <Settings className="w-4 h-4" />
-                      <span>遊戲細部設定</span>
-                    </button>
-                    <button
-                      onClick={() => { playSound.click(settings.soundEnabled); setActiveTab('worlds'); }}
-                      className={`w-full text-left px-4 py-3 rounded-lg text-xs font-semibold flex items-center gap-3 transition-colors ${
-                        activeTab === 'worlds' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-zinc-400 hover:bg-white/5 hover:text-white border border-transparent'
-                      }`}
-                    >
-                      <Share2 className="w-4 h-4" />
-                      <span>世界存檔與備份</span>
-                    </button>
-                  </div>
-
-                  <div className="bg-zinc-900/40 p-3 rounded-lg border border-white/5 text-center">
-                    <p className="text-[10px] text-zinc-500 font-mono">開發版本 v1.4.2</p>
-                    <p className="text-[9px] text-cyan-500/60 font-mono mt-1">WebGL Voxel Engine</p>
+          <div id="game-menu-modal" className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 pointer-events-auto">
+            {menuView === 'main' ? (
+              // Bedrock Pause Menu Layout
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="flex flex-col items-center gap-1.5 w-full max-w-[420px]"
+              >
+                {/* Minecraft Title Container */}
+                <div className="relative mb-6 select-none">
+                  <h1 className="text-white text-5xl md:text-6xl font-extrabold tracking-widest text-center select-none font-pixel uppercase filter drop-shadow-[0_5px_0_rgba(0,0,0,0.6)]"
+                      style={{
+                        textShadow: `
+                          -3px -3px 0 #000,  
+                           3px -3px 0 #000,
+                          -3px  3px 0 #000,
+                           3px  3px 0 #000,
+                           0px  5px 0 #555,
+                           0px  7px 0 #000
+                        `
+                      }}>
+                    MINECRAFT
+                  </h1>
+                  {/* Floating yellow splash text */}
+                  <div className="absolute top-[-10px] right-[-45px] rotate-[-12deg] text-yellow-300 text-[10px] md:text-xs font-bold animate-pulse select-none font-pixel drop-shadow-[2px_2px_0_#000] whitespace-nowrap">
+                    {splashText}
                   </div>
                 </div>
 
-                {/* Right Tab Content */}
-                <div className="flex-1 p-6 overflow-y-auto bg-zinc-900/30">
+                {/* Vertical Stack of 4 Minecraft Styled Buttons */}
+                <div className="flex flex-col gap-3.5 w-full">
+                  <button
+                    onClick={() => {
+                      playSound.click(settings.soundEnabled);
+                      onTogglePause();
+                    }}
+                    className="border-[3px] border-zinc-900 bg-zinc-300 hover:bg-zinc-200 active:bg-zinc-400 text-zinc-800 font-extrabold text-base md:text-lg py-3.5 px-6 shadow-[inset_3px_3px_0px_#ffffff,inset_-3px_-3px_0px_#8a8a8a] rounded-[4px] cursor-pointer text-center tracking-wider transition-all duration-75 select-none active:scale-95"
+                  >
+                    继续游戏
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      playSound.click(settings.soundEnabled);
+                      setMenuView('settings');
+                    }}
+                    className="border-[3px] border-zinc-900 bg-zinc-300 hover:bg-zinc-200 active:bg-zinc-400 text-zinc-800 font-extrabold text-base md:text-lg py-3.5 px-6 shadow-[inset_3px_3px_0px_#ffffff,inset_-3px_-3px_0px_#8a8a8a] rounded-[4px] cursor-pointer text-center tracking-wider transition-all duration-75 select-none active:scale-95"
+                  >
+                    设置
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      playSound.click(settings.soundEnabled);
+                      setMenuView('worlds');
+                    }}
+                    className="border-[3px] border-zinc-900 bg-zinc-300 hover:bg-zinc-200 active:bg-zinc-400 text-zinc-800 font-extrabold text-base md:text-lg py-3.5 px-6 shadow-[inset_3px_3px_0px_#ffffff,inset_-3px_-3px_0px_#8a8a8a] rounded-[4px] cursor-pointer text-center tracking-wider transition-all duration-75 select-none active:scale-95"
+                  >
+                    浏览附加内容！
+                  </button>
+
+                  <button
+                    onClick={handleSaveAndQuit}
+                    className="border-[3px] border-zinc-900 bg-zinc-300 hover:bg-zinc-200 active:bg-zinc-400 text-zinc-800 font-extrabold text-base md:text-lg py-3.5 px-6 shadow-[inset_3px_3px_0px_#ffffff,inset_-3px_-3px_0px_#8a8a8a] rounded-[4px] cursor-pointer text-center tracking-wider transition-all duration-75 select-none active:scale-95"
+                  >
+                    保存并退出
+                  </button>
+                </div>
+
+                {/* Horizontal row of 3 square buttons */}
+                <div className="flex gap-4 mt-6">
+                  {/* Help */}
+                  <button
+                    onClick={() => {
+                      playSound.click(settings.soundEnabled);
+                      setMenuView('help');
+                    }}
+                    className="border-[3px] border-zinc-900 bg-zinc-300 hover:bg-zinc-200 active:bg-zinc-400 text-zinc-800 font-extrabold w-14 h-14 flex items-center justify-center shadow-[inset_3px_3px_0px_#ffffff,inset_-3px_-3px_0px_#8a8a8a] rounded-[4px] cursor-pointer transition-all duration-75 select-none active:scale-95"
+                    title="操作說明與提示"
+                  >
+                    <Info className="w-6 h-6 text-zinc-700" />
+                  </button>
+
+                  {/* Tips Question mark */}
+                  <button
+                    onClick={showRandomTip}
+                    className="border-[3px] border-zinc-900 bg-zinc-300 hover:bg-zinc-200 active:bg-zinc-400 text-zinc-700 font-extrabold text-2xl w-14 h-14 flex items-center justify-center shadow-[inset_3px_3px_0px_#ffffff,inset_-3px_-3px_0px_#8a8a8a] rounded-[4px] cursor-pointer transition-all duration-75 select-none font-vt active:scale-95"
+                    title="隨機探險秘訣"
+                  >
+                    ?
+                  </button>
+
+                  {/* Camera Screen Shot HUD toggle */}
+                  <button
+                    onClick={() => {
+                      playSound.click(settings.soundEnabled);
+                      setHideHUD(prev => !prev);
+                      triggerNotification(hideHUD ? '📷 已恢復抬頭顯示器 (HUD)' : '📷 抬頭顯示器 (HUD) 已隱藏！按 F1 或下方按鈕可恢復', 'success');
+                    }}
+                    className="border-[3px] border-zinc-900 bg-zinc-300 hover:bg-zinc-200 active:bg-zinc-400 text-zinc-800 font-extrabold w-14 h-14 flex items-center justify-center shadow-[inset_3px_3px_0px_#ffffff,inset_-3px_-3px_0px_#8a8a8a] rounded-[4px] cursor-pointer transition-all duration-75 select-none active:scale-95"
+                    title="隱藏/顯示 HUD 介面 (F1)"
+                  >
+                    <Settings className="w-6 h-6 text-zinc-700" />
+                  </button>
+                </div>
+              </motion.div>
+            ) : (
+              // Minecraft Styled Sub-Panel Frame for settings, worlds, help, inventory
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-[#2e2e2e] border-[4px] border-[#1a1a1a] w-full max-w-4xl rounded-lg overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.8)] flex flex-col h-[85vh] select-none pointer-events-auto"
+              >
+                {/* Header */}
+                <div className="bg-[#151515] p-4 border-b-[3px] border-[#3c3c3c] flex justify-between items-center">
+                  <span className="text-white text-xl md:text-2xl font-bold font-vt uppercase tracking-widest flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 bg-yellow-400 rounded-sm inline-block animate-pulse" />
+                    {menuView === 'settings' && '遊戲細部設定 (SETTINGS)'}
+                    {menuView === 'worlds' && '世界存檔與附加內容 (WORLDS)'}
+                    {menuView === 'help' && '控制說明與提示 (HOW TO PLAY)'}
+                    {menuView === 'inventory' && '創造方塊庫與圖鑑 (INVENTORY)'}
+                  </span>
+                  
+                  <button
+                    onClick={() => {
+                      playSound.click(settings.soundEnabled);
+                      setMenuView('main');
+                    }}
+                    className="border-[2px] border-zinc-900 bg-zinc-300 hover:bg-zinc-200 active:bg-zinc-400 text-zinc-800 font-extrabold text-xs md:text-sm py-2 px-4 shadow-[inset_2px_2px_0px_#ffffff,inset_-2px_-2px_0px_#8a8a8a] rounded-[3px] cursor-pointer transition-all active:scale-95"
+                  >
+                    返回主選單 (BACK)
+                  </button>
+                </div>
+
+                {/* Tab contents */}
+                <div className="flex-1 p-6 overflow-y-auto bg-[#2b2b2b]">
                   {/* TAB 1: HELP */}
-                  {activeTab === 'help' && (
+                  {menuView === 'help' && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
                       <div>
                         <h3 className="text-base font-bold text-white mb-1">🎮 操作指南</h3>
@@ -363,8 +397,8 @@ export default function UIOverlay({
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Keyboard Controls */}
-                        <div className="bg-zinc-950/40 border border-white/5 rounded-xl p-4">
-                          <h4 className="text-xs font-bold text-cyan-400 mb-2.5 flex items-center gap-2">
+                        <div className="bg-[#1e1e1e] border-2 border-[#121212] rounded-lg p-4 shadow-inner">
+                          <h4 className="text-xs font-bold text-yellow-400 mb-2.5 flex items-center gap-2">
                             <span>💻 電腦鍵盤/滑鼠</span>
                           </h4>
                           <ul className="space-y-1.5 text-xs text-zinc-300 font-mono">
@@ -381,15 +415,15 @@ export default function UIOverlay({
                         </div>
 
                         {/* Interactive tips */}
-                        <div className="bg-zinc-950/40 border border-white/5 rounded-xl p-4 flex flex-col justify-between">
+                        <div className="bg-[#1e1e1e] border-2 border-[#121212] rounded-lg p-4 flex flex-col justify-between shadow-inner">
                           <div>
-                            <h4 className="text-xs font-bold text-cyan-400 mb-2.5 flex items-center gap-2">
+                            <h4 className="text-xs font-bold text-yellow-400 mb-2.5 flex items-center gap-2">
                               <span>🧗‍♀️ 地底探險與光源</span>
                             </h4>
                             <p className="text-xs text-zinc-300 leading-relaxed">
                               往下挖掘即可進入地底深處！隨著高度降低，世界會逐漸變暗並開啟低沉的環境音效。
                             </p>
-                            <p className="text-xs text-zinc-300 leading-relaxed mt-2 font-medium text-amber-300">
+                            <p className="text-xs text-zinc-300 leading-relaxed mt-2 font-medium text-yellow-300">
                               💡 秘訣：使用熱鍵欄選擇「火把」，在地底石壁上放置它，能瞬間點亮四周，引導探險！
                             </p>
                             <p className="text-xs text-zinc-400 leading-relaxed mt-2">
@@ -397,17 +431,17 @@ export default function UIOverlay({
                             </p>
                           </div>
 
-                          <div className="bg-cyan-950/30 border border-cyan-800/30 rounded-lg p-2.5 mt-3 text-xs text-cyan-300">
+                          <div className="bg-yellow-950/40 border border-yellow-700/30 rounded p-2.5 mt-3 text-xs text-yellow-300">
                             <strong>💡 提示:</strong> 如果您的滑鼠無法旋轉，請按一下遊戲畫面。這將啟動 Pointer Lock 機制，讓操控更順暢。
                           </div>
                         </div>
                       </div>
 
                       {/* Mode selection quick-toggle */}
-                      <div className="bg-zinc-950/60 p-4 rounded-xl border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="bg-[#1e1e1e] border-2 border-[#121212] p-4 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-inner">
                         <div>
                           <h4 className="text-xs font-bold text-white mb-0.5">🚀 遊戲模式切換</h4>
-                          <p className="text-xs text-zinc-400">目前處於: <strong className="text-cyan-400">{playerStats.mode === 'creative' ? '創造模式 (無限方塊、可自由飛行)' : '生存模式 (生命值、收集方塊)'}</strong></p>
+                          <p className="text-xs text-zinc-400">目前處於: <strong className="text-yellow-400">{playerStats.mode === 'creative' ? '創造模式 (無限方塊、可自由飛行)' : '生存模式 (生命值、收集方塊)'}</strong></p>
                         </div>
                         <div className="flex gap-2">
                           <button
@@ -415,8 +449,8 @@ export default function UIOverlay({
                               onUpdateStats(prev => ({ ...prev, mode: 'creative', isFlying: true }));
                               triggerNotification('已切換為：創造模式！');
                             }}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                              playerStats.mode === 'creative' ? 'bg-cyan-500 text-black' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                            className={`px-4 py-2 border-2 border-zinc-900 shadow-[inset_2px_2px_0px_#ffffff,inset_-2px_-2px_0px_#8a8a8a] rounded-[3px] text-xs font-bold transition-all ${
+                              playerStats.mode === 'creative' ? 'bg-yellow-500 text-black' : 'bg-zinc-300 text-zinc-850 hover:bg-zinc-200'
                             }`}
                           >
                             🎨 創造模式
@@ -426,8 +460,8 @@ export default function UIOverlay({
                               onUpdateStats(prev => ({ ...prev, mode: 'survival', isFlying: false }));
                               triggerNotification('已切換為：生存模式！');
                             }}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                              playerStats.mode === 'survival' ? 'bg-emerald-500 text-black' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                            className={`px-4 py-2 border-2 border-zinc-900 shadow-[inset_2px_2px_0px_#ffffff,inset_-2px_-2px_0px_#8a8a8a] rounded-[3px] text-xs font-bold transition-all ${
+                              playerStats.mode === 'survival' ? 'bg-yellow-500 text-black' : 'bg-zinc-300 text-zinc-850 hover:bg-zinc-200'
                             }`}
                           >
                             🍖 生存模式
@@ -438,7 +472,7 @@ export default function UIOverlay({
                   )}
 
                   {/* TAB 2: INVENTORY / BLOCK DICTIONARY */}
-                  {activeTab === 'inventory' && (
+                  {menuView === 'inventory' && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                       <div>
                         <h3 className="text-base font-bold text-white mb-1">
@@ -471,11 +505,11 @@ export default function UIOverlay({
                                   handleSlotClick(block.type);
                                   triggerNotification(`已手持：${block.name}！`);
                                 }}
-                                className={`text-left p-3 rounded-xl border flex gap-3 transition-all ${
+                                className={`text-left p-3 rounded-lg border-2 flex gap-3 transition-all ${
                                   isSelected
-                                    ? 'bg-cyan-900/40 border-cyan-400 shadow-lg shadow-cyan-950/40'
+                                    ? 'bg-yellow-950/20 border-yellow-500 shadow-inner'
                                     : hasItem
-                                      ? 'bg-zinc-950/40 border-white/5 hover:border-white/20'
+                                      ? 'bg-[#1e1e1e] border-[#121212] hover:border-zinc-500'
                                       : 'bg-zinc-950/10 border-white/5 opacity-45 cursor-not-allowed'
                                 }`}
                               >
@@ -488,8 +522,8 @@ export default function UIOverlay({
                                   <div className="flex items-center gap-1.5">
                                     <span className="font-semibold text-xs truncate">{block.name}</span>
                                     {isSurvival ? (
-                                      <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold font-mono ${
-                                        count > 0 ? 'bg-cyan-950 text-cyan-300' : 'bg-rose-950/50 text-rose-400'
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded-sm font-bold font-mono ${
+                                        count > 0 ? 'bg-yellow-950 text-yellow-400 border border-yellow-700/30' : 'bg-red-950/50 text-red-400'
                                       }`}>
                                         {count > 0 ? `×${count}` : '未擁有'}
                                       </span>
@@ -519,7 +553,7 @@ export default function UIOverlay({
                   )}
 
                   {/* TAB 3: SETTINGS */}
-                  {activeTab === 'settings' && (
+                  {menuView === 'settings' && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
                       <div>
                         <h3 className="text-base font-bold text-white mb-1">⚙️ 遊戲細部設定</h3>
@@ -528,14 +562,14 @@ export default function UIOverlay({
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         {/* Render & Graphics Settings */}
-                        <div className="space-y-4 bg-zinc-950/40 border border-white/5 rounded-xl p-4">
-                          <h4 className="text-xs font-bold text-cyan-400 border-b border-white/5 pb-1.5">🖥️ 視覺與效能</h4>
+                        <div className="space-y-4 bg-[#1e1e1e] border-2 border-[#121212] rounded-lg p-4 shadow-inner">
+                          <h4 className="text-xs font-bold text-yellow-400 border-b border-white/5 pb-1.5">🖥️ 視覺與效能</h4>
                           
                           {/* Render Distance */}
                           <div className="space-y-1.5">
                             <div className="flex justify-between text-xs font-mono">
-                              <span className="text-zinc-400">渲染視野 (Render Distance)</span>
-                              <span className="text-white font-bold">{settings.renderDistance} 區塊 (Chunks)</span>
+                              <span className="text-zinc-400 font-bold">渲染視野 (Render Distance)</span>
+                              <span className="text-yellow-400 font-bold">{settings.renderDistance} 區塊 (Chunks)</span>
                             </div>
                             <input
                               type="range"
@@ -546,7 +580,7 @@ export default function UIOverlay({
                                 const val = parseInt(e.target.value);
                                 onUpdateSettings(prev => ({ ...prev, renderDistance: val }));
                               }}
-                              className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-zinc-800 rounded-lg"
+                              className="w-full accent-yellow-500 cursor-pointer h-1.5 bg-zinc-800 rounded-lg"
                             />
                             <p className="text-[10px] text-zinc-500">
                               提示：在效能受限的裝置或嵌入式視窗中，較低的區塊值（如 2）能提供極高的幀率。
@@ -562,7 +596,7 @@ export default function UIOverlay({
                             <button
                               onClick={() => onUpdateSettings(prev => ({ ...prev, showMinimap: !prev.showMinimap }))}
                               className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-200 ${
-                                settings.showMinimap ? 'bg-cyan-500' : 'bg-zinc-800'
+                                settings.showMinimap ? 'bg-yellow-500' : 'bg-zinc-800'
                               }`}
                             >
                               <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-200 ${
@@ -580,7 +614,7 @@ export default function UIOverlay({
                             <button
                               onClick={() => onUpdateSettings(prev => ({ ...prev, dayNightCycle: !prev.dayNightCycle }))}
                               className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-200 ${
-                                settings.dayNightCycle ? 'bg-cyan-500' : 'bg-zinc-800'
+                                settings.dayNightCycle ? 'bg-yellow-500' : 'bg-zinc-800'
                               }`}
                             >
                               <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-200 ${
@@ -591,8 +625,8 @@ export default function UIOverlay({
                         </div>
 
                         {/* Physical & Audios Settings */}
-                        <div className="space-y-4 bg-zinc-950/40 border border-white/5 rounded-xl p-4">
-                          <h4 className="text-xs font-bold text-cyan-400 border-b border-white/5 pb-1.5">🎵 物理與聲音</h4>
+                        <div className="space-y-4 bg-[#1e1e1e] border-2 border-[#121212] rounded-lg p-4 shadow-inner">
+                          <h4 className="text-xs font-bold text-yellow-400 border-b border-white/5 pb-1.5">🎵 物理與聲音</h4>
 
                           {/* Audio Toggle */}
                           <div className="flex justify-between items-center">
@@ -614,9 +648,9 @@ export default function UIOverlay({
                                   } catch(e){}
                                 }
                               }}
-                              className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white transition-colors"
+                              className="p-2 border-2 border-zinc-900 bg-zinc-300 shadow-[inset_2px_2px_0px_#ffffff,inset_-2px_-2px_0px_#8a8a8a] text-zinc-850 hover:bg-zinc-200 transition-colors"
                             >
-                              {settings.soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-zinc-500" />}
+                              {settings.soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-600" /> : <VolumeX className="w-4 h-4 text-zinc-500" />}
                             </button>
                           </div>
 
@@ -629,7 +663,7 @@ export default function UIOverlay({
                             <button
                               onClick={() => onUpdateSettings(prev => ({ ...prev, gravityEnabled: !prev.gravityEnabled }))}
                               className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-200 ${
-                                settings.gravityEnabled ? 'bg-cyan-500' : 'bg-zinc-800'
+                                settings.gravityEnabled ? 'bg-yellow-500' : 'bg-zinc-800'
                               }`}
                             >
                               <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-200 ${
@@ -647,7 +681,7 @@ export default function UIOverlay({
                             <button
                               onClick={() => onUpdateSettings(prev => ({ ...prev, superSpeed: !prev.superSpeed }))}
                               className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-200 ${
-                                settings.superSpeed ? 'bg-cyan-500' : 'bg-zinc-800'
+                                settings.superSpeed ? 'bg-yellow-500' : 'bg-zinc-800'
                               }`}
                             >
                               <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-200 ${
@@ -660,7 +694,7 @@ export default function UIOverlay({
                           <div className="pt-2 border-t border-white/5 flex justify-between items-center">
                             <div>
                               <span className="text-xs text-zinc-300 block">重設當前世界</span>
-                              <span className="text-[10px] text-red-400/80">移除所有已擺放的自定義方塊</span>
+                              <span className="text-[10px] text-red-400/85">移除所有已擺放的自定義方塊</span>
                             </div>
                             <button
                               onClick={() => {
@@ -670,7 +704,7 @@ export default function UIOverlay({
                                   onTogglePause();
                                 }
                               }}
-                              className="px-3 py-1.5 bg-red-950 hover:bg-red-900 border border-red-500/30 text-xs text-red-200 font-bold rounded-lg transition-all active:scale-95 flex items-center gap-1.5"
+                              className="px-3.5 py-1.5 border-[2px] border-zinc-900 bg-red-650 text-white font-bold text-xs rounded shadow-[inset_2px_2px_0px_#ff8888,inset_-2px_-2px_0px_#440000] cursor-pointer hover:bg-red-550 active:scale-95 transition-all flex items-center gap-1.5"
                             >
                               <RotateCcw className="w-3.5 h-3.5" />
                               <span>重設</span>
@@ -682,7 +716,7 @@ export default function UIOverlay({
                   )}
 
                   {/* TAB 4: WORLDS / BACKUP */}
-                  {activeTab === 'worlds' && (
+                  {menuView === 'worlds' && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                       <div className="flex justify-between items-start">
                         <div>
@@ -693,8 +727,8 @@ export default function UIOverlay({
 
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
                         {/* Existing Worlds List */}
-                        <div className="md:col-span-7 bg-zinc-950/40 border border-white/5 rounded-xl p-4 flex flex-col h-[400px]">
-                          <span className="text-xs font-bold text-cyan-400 mb-2 block">已儲存的世界</span>
+                        <div className="md:col-span-7 bg-[#1e1e1e] border-2 border-[#121212] rounded-lg p-4 flex flex-col h-[400px] shadow-inner">
+                          <span className="text-xs font-bold text-yellow-400 mb-2 block">已儲存的世界</span>
                           <div className="flex-1 overflow-y-auto space-y-2 pr-1">
                             {activeWorlds.map(world => {
                               const isCurrent = world.id === currentWorldId;
@@ -702,14 +736,14 @@ export default function UIOverlay({
                               return (
                                 <div
                                   key={world.id}
-                                  className={`p-3 rounded-lg border flex justify-between items-center transition-all ${
-                                    isCurrent ? 'bg-cyan-950/30 border-cyan-500/40' : 'bg-zinc-900/60 border-white/5'
+                                  className={`p-3 rounded border flex justify-between items-center transition-all ${
+                                    isCurrent ? 'bg-yellow-950/20 border-yellow-500' : 'bg-zinc-900/60 border-zinc-850'
                                   }`}
                                 >
                                   <div>
                                     <div className="flex items-center gap-2">
                                       <span className="font-semibold text-xs text-white">{world.name}</span>
-                                      {isCurrent && <span className="text-[9px] bg-cyan-500 text-black px-1.5 py-0.5 rounded-sm font-bold font-mono">目前遊玩</span>}
+                                      {isCurrent && <span className="text-[9px] bg-yellow-500 text-black px-1.5 py-0.5 rounded-sm font-bold font-mono">目前遊玩</span>}
                                     </div>
                                     <div className="flex gap-3 text-[10px] text-zinc-400 font-mono mt-1">
                                       <span>種子碼: {world.seed}</span>
@@ -726,7 +760,7 @@ export default function UIOverlay({
                                           triggerNotification(`已載入：${world.name}`);
                                           onTogglePause();
                                         }}
-                                        className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-cyan-300 rounded-md text-[11px] font-semibold transition-all"
+                                        className="px-2.5 py-1 text-[11px] font-bold border-[2px] border-zinc-900 bg-zinc-300 text-zinc-800 rounded shadow-[inset_2px_2px_0px_#ffffff,inset_-2px_-2px_0px_#8a8a8a] hover:bg-zinc-200"
                                         title="載入世界"
                                       >
                                         載入
@@ -740,7 +774,7 @@ export default function UIOverlay({
                                             triggerNotification('存檔已刪除！');
                                           }
                                         }}
-                                        className="p-1.5 bg-red-950/40 hover:bg-red-900 border border-red-500/30 text-red-300 rounded-md"
+                                        className="p-1.5 border-[2px] border-zinc-900 bg-red-650 hover:bg-red-550 text-white rounded shadow-[inset_1px_1px_0px_#ff8888,inset_-1px_-1px_0px_#440000]"
                                         title="刪除世界"
                                       >
                                         <Trash2 className="w-3.5 h-3.5" />
@@ -756,8 +790,8 @@ export default function UIOverlay({
                         {/* Create & Import/Export */}
                         <div className="md:col-span-5 flex flex-col gap-4">
                           {/* Create World Form */}
-                          <form onSubmit={handleCreateWorldSubmit} className="bg-zinc-950/40 border border-white/5 rounded-xl p-4">
-                            <span className="text-xs font-bold text-cyan-400 mb-2.5 block">🆕 開闢全新世界</span>
+                          <form onSubmit={handleCreateWorldSubmit} className="bg-[#1e1e1e] border-2 border-[#121212] rounded-lg p-4 shadow-inner">
+                            <span className="text-xs font-bold text-yellow-400 mb-2.5 block">🆕 開闢全新世界</span>
                             <div className="space-y-2">
                               <div>
                                 <label className="text-[10px] text-zinc-400 font-mono block mb-1">世界名稱</label>
@@ -766,7 +800,7 @@ export default function UIOverlay({
                                   placeholder="例如: 我的探險洞穴"
                                   value={newWorldName}
                                   onChange={e => setNewWorldName(e.target.value)}
-                                  className="w-full bg-zinc-900 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                                  className="w-full bg-[#2c2c2c] border-2 border-zinc-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500 font-mono"
                                 />
                               </div>
                               <div>
@@ -776,12 +810,12 @@ export default function UIOverlay({
                                   placeholder="例如: 88888, forest, cave"
                                   value={newWorldSeed}
                                   onChange={e => setNewWorldSeed(e.target.value)}
-                                  className="w-full bg-zinc-900 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                                  className="w-full bg-[#2c2c2c] border-2 border-zinc-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500 font-mono"
                                 />
                               </div>
                               <button
                                 type="submit"
-                                className="w-full bg-cyan-600 hover:bg-cyan-500 font-bold text-xs py-2 rounded text-black transition-all active:scale-95"
+                                className="w-full border-[2px] border-zinc-900 bg-yellow-500 hover:bg-yellow-400 text-black font-extrabold text-xs py-2 px-4 shadow-[inset_2px_2px_0px_#ffffff,inset_-2px_-2px_0px_#8a8a8a] rounded-[3px] cursor-pointer transition-all active:scale-95"
                               >
                                 生成並加載全新地圖
                               </button>
@@ -789,18 +823,18 @@ export default function UIOverlay({
                           </form>
 
                           {/* Share Codes */}
-                          <div className="bg-zinc-950/40 border border-white/5 rounded-xl p-4 flex-1 flex flex-col justify-between min-h-[190px]">
+                          <div className="bg-[#1e1e1e] border-2 border-[#121212] rounded-lg p-4 flex-1 flex flex-col justify-between min-h-[190px] shadow-inner">
                             <div>
-                              <span className="text-xs font-bold text-cyan-400 mb-1 block">📤 備份與分享 (JSON)</span>
+                              <span className="text-xs font-bold text-yellow-400 mb-1 block">📤 備份與分享 (JSON)</span>
                               <p className="text-[10px] text-zinc-400 leading-tight">可以把整個存檔世界導出成文字代碼，儲存到電腦或發送給朋友！</p>
                             </div>
 
                             <div className="flex gap-2 my-2">
                               <button
                                 onClick={handleExport}
-                                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-xs py-1.5 rounded flex items-center justify-center gap-1.5"
+                                className="w-full border-[2px] border-zinc-900 bg-zinc-300 hover:bg-zinc-200 text-zinc-800 font-bold text-xs py-1.5 rounded flex items-center justify-center gap-1.5 shadow-[inset_2px_2px_0px_#ffffff,inset_-2px_-2px_0px_#8a8a8a]"
                               >
-                                <Share2 className="w-3.5 h-3.5 text-cyan-400" />
+                                <Share2 className="w-3.5 h-3.5 text-yellow-600" />
                                 <span>複製/導出代碼</span>
                               </button>
                             </div>
@@ -811,11 +845,11 @@ export default function UIOverlay({
                                 placeholder="在此貼上導出的存檔 JSON 程式碼"
                                 value={importText}
                                 onChange={e => setImportText(e.target.value)}
-                                className="w-full bg-zinc-900 border border-white/10 rounded px-2 py-1 text-[10px] text-white focus:outline-none focus:border-cyan-500 font-mono mb-1.5"
+                                className="w-full bg-[#2c2c2c] border-2 border-zinc-800 rounded px-2 py-1 text-[10px] text-white focus:outline-none focus:border-yellow-500 font-mono mb-1.5"
                               />
                               <button
                                 onClick={handleImport}
-                                className="w-full bg-emerald-600 hover:bg-emerald-500 font-bold text-[11px] py-1 text-black rounded transition-all"
+                                className="w-full border-[2px] border-zinc-900 bg-yellow-500 hover:bg-yellow-400 text-black font-extrabold text-[11px] py-1 text-black rounded shadow-[inset_1.5px_1.5px_0px_#ffffff,inset_-1.5px_-1.5px_0px_#8a8a8a]"
                               >
                                 📥 載入外部代碼
                               </button>
@@ -826,8 +860,8 @@ export default function UIOverlay({
                     </motion.div>
                   )}
                 </div>
-              </div>
-            </motion.div>
+              </motion.div>
+            )}
           </div>
         )}
       </AnimatePresence>
@@ -853,7 +887,7 @@ export default function UIOverlay({
 
       {/* BOTTOM HUD - HOTBAR & HEAL THS (ONLY SHOWN WHEN MENU IS CLOSED) */}
       {/* Dynamic Interaction Prompt (Immersive UI design) */}
-      {!gamePaused && (
+      {!gamePaused && !hideHUD && (
         <div
           id="hud-interaction-banner"
           className="absolute bottom-36 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-cyan-500/10 border border-cyan-500/30 px-6 py-2 rounded-full shadow-[0_0_15px_rgba(6,182,212,0.15)] pointer-events-none transition-all duration-300 z-20"
@@ -867,7 +901,7 @@ export default function UIOverlay({
       )}
 
       {/* BOTTOM HUD - HOTBAR & HEAL THS (ONLY SHOWN WHEN MENU IS CLOSED) */}
-      {!gamePaused && (
+      {!gamePaused && !hideHUD && (
         <div id="hud-bottom-bar" className="mt-auto w-full flex flex-col items-center gap-3.5 p-6 pointer-events-auto z-20">
           
           {/* Health & Hunger / Oxygen Bars (Immersive Style) */}
@@ -969,7 +1003,7 @@ export default function UIOverlay({
       )}
 
       {/* MOBILE CONTROL BUTTONS (ONLY SHOWN ON MOBILE IN GAME) */}
-      {!gamePaused && isMobile && (
+      {!gamePaused && !hideHUD && isMobile && (
         <div id="mobile-control-buttons" className="absolute bottom-4 right-4 flex flex-col gap-2.5 items-end pointer-events-auto">
           {/* Action Buttons: Break & Build */}
           <div className="flex gap-2">
@@ -1031,6 +1065,19 @@ export default function UIOverlay({
             </button>
           </div>
         </div>
+      )}
+
+      {hideHUD && (
+        <button
+          onClick={() => {
+            playSound.click(settings.soundEnabled);
+            setHideHUD(false);
+          }}
+          className="fixed bottom-4 right-4 z-[100] bg-black/60 hover:bg-black/80 text-[10px] text-white/70 hover:text-white pointer-events-auto px-3 py-2 rounded-md font-mono border border-white/10 active:scale-95 transition-all flex items-center gap-1.5 shadow-lg shadow-black/50"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping inline-block" />
+          <span>📷 HUD已隱藏 (按 F1 或點此恢復)</span>
+        </button>
       )}
 
       {/* DEATH OVERLAY WITH RESPAWN BUTTON */}

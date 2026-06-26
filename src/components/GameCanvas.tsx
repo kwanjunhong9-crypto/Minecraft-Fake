@@ -119,87 +119,104 @@ export default function GameCanvas({
     const perlin = new PerlinNoise(seed);
     const rng = new SeededRandom(seed);
 
+    // Reusable single column generation function for infinite terrain
+    const generateColumn = (cx: number, cz: number, map: Record<string, number>) => {
+      // 2D Perlin Noise terrain height
+      const n = perlin.fbm2D(cx * 0.03, cz * 0.03, 3, 2.1, 0.45);
+      // height range 5 to 22
+      const heightLevel = Math.floor(n * 10 + 12);
+
+      // Caves Carver 3D noise cache
+      for (let y = 25; y >= -20; y--) {
+        const key = `${cx},${y},${cz}`;
+
+        // Check if Y is below surface
+        if (y > heightLevel) {
+          continue; // Air
+        }
+
+        // 3D Noise for Cave Carving (below surface - 2)
+        if (y < heightLevel - 2) {
+          // Wormhole caves logic
+          const caveNoise = perlin.noise3D(cx * 0.09, y * 0.13, cz * 0.09);
+          if (caveNoise > 0.40) {
+            // Air pocket cave!
+            continue;
+          }
+        }
+
+        // Solid blocks assignment
+        if (y === heightLevel) {
+          map[key] = BlockType.GRASS;
+          
+          // Random tree generation on grass
+          if (Math.abs(cx) > 3 && Math.abs(cz) > 3 && rng.range(0, 100) > 98.8) {
+            // Spawn a tree trunk & leaves
+            const treeH = Math.floor(rng.range(4, 6));
+            for (let ty = 1; ty <= treeH; ty++) {
+              map[`${cx},${y + ty},${cz}`] = BlockType.WOOD;
+            }
+            // Leaves canopy
+            for (let lx = -2; lx <= 2; lx++) {
+              for (let lz = -2; lz <= 2; lz++) {
+                for (let ly = 0; ly <= 2; ly++) {
+                  const lkey = `${cx + lx},${y + treeH + ly},${cz + lz}`;
+                  if (!map[lkey]) {
+                    map[lkey] = BlockType.LEAVES;
+                  }
+                }
+              }
+            }
+          }
+        } else if (y >= heightLevel - 3) {
+          map[key] = BlockType.DIRT;
+        } else {
+          // Deep layers: Stone & Ores
+          let blockType = BlockType.STONE;
+
+          // Ore veins based on depth
+          const oreRand = rng.range(0, 100);
+          if (y < 4 && oreRand > 98.8) {
+            blockType = BlockType.DIAMOND;
+          } else if (y < 6 && oreRand > 97.5) {
+            blockType = BlockType.GOLD;
+          } else if (y < 8 && oreRand > 96.0) {
+            blockType = BlockType.REDSTONE;
+          } else if (y < 12 && oreRand > 94.0) {
+            blockType = BlockType.IRON;
+          } else if (y < 14 && oreRand > 91.0) {
+            blockType = BlockType.COAL;
+          }
+
+          map[key] = blockType;
+        }
+      }
+    };
+
+    // Track generated columns to prevent duplicate generation
+    const generatedColumns = new Set<string>();
+
     // Generate starter blocks in sparse dict if completely empty
     const initWorld = () => {
       const initialMap: Record<string, number> = { ...blocksRef.current };
       const keys = Object.keys(initialMap);
       
+      // Parse any existing blocks to track already generated columns
+      keys.forEach(k => {
+        const parts = k.split(',');
+        if (parts.length === 3) {
+          generatedColumns.add(`${parts[0]},${parts[2]}`);
+        }
+      });
+
       // If we already have blocks saved, we don't overwrite
       if (keys.length > 50) return;
 
       const size = 32; // initial radius of columns
       for (let x = -size; x <= size; x++) {
         for (let z = -size; z <= size; z++) {
-          // 2D Perlin Noise terrain height
-          const n = perlin.fbm2D(x * 0.03, z * 0.03, 3, 2.1, 0.45);
-          // height range 5 to 22
-          const heightLevel = Math.floor(n * 10 + 12);
-
-          // Caves Carver 3D noise cache
-          for (let y = 25; y >= -20; y--) {
-            const key = `${x},${y},${z}`;
-
-            // Check if Y is below surface
-            if (y > heightLevel) {
-              continue; // Air
-            }
-
-            // 3D Noise for Cave Carving (below surface - 2)
-            if (y < heightLevel - 2) {
-              // Wormhole caves logic
-              const caveNoise = perlin.noise3D(x * 0.09, y * 0.13, z * 0.09);
-              if (caveNoise > 0.40) {
-                // Air pocket cave!
-                continue;
-              }
-            }
-
-            // Solid blocks assignment
-            if (y === heightLevel) {
-              initialMap[key] = BlockType.GRASS;
-              
-              // Random tree generation on grass
-              if (Math.abs(x) > 3 && Math.abs(z) > 3 && rng.range(0, 100) > 98.8) {
-                // Spawn a tree trunk & leaves
-                const treeH = Math.floor(rng.range(4, 6));
-                for (let ty = 1; ty <= treeH; ty++) {
-                  initialMap[`${x},${y + ty},${z}`] = BlockType.WOOD;
-                }
-                // Leaves canopy
-                for (let lx = -2; lx <= 2; lx++) {
-                  for (let lz = -2; lz <= 2; lz++) {
-                    for (let ly = 0; ly <= 2; ly++) {
-                      const lkey = `${x + lx},${y + treeH + ly},${z + lz}`;
-                      if (!initialMap[lkey]) {
-                        initialMap[lkey] = BlockType.LEAVES;
-                      }
-                    }
-                  }
-                }
-              }
-            } else if (y >= heightLevel - 3) {
-              initialMap[key] = BlockType.DIRT;
-            } else {
-              // Deep layers: Stone & Ores
-              let blockType = BlockType.STONE;
-
-              // Ore veins based on depth
-              const oreRand = rng.range(0, 100);
-              if (y < 4 && oreRand > 98.8) {
-                blockType = BlockType.DIAMOND;
-              } else if (y < 6 && oreRand > 97.5) {
-                blockType = BlockType.GOLD;
-              } else if (y < 8 && oreRand > 96.0) {
-                blockType = BlockType.REDSTONE;
-              } else if (y < 12 && oreRand > 94.0) {
-                blockType = BlockType.IRON;
-              } else if (y < 14 && oreRand > 91.0) {
-                blockType = BlockType.COAL;
-              }
-
-              initialMap[key] = blockType;
-            }
-          }
+          generatedColumns.add(`${x},${z}`);
+          generateColumn(x, z, initialMap);
         }
       }
 
@@ -330,6 +347,193 @@ export default function GameCanvas({
     }
     const activeDroppedItems: DroppedItem[] = [];
 
+    // -------------------------------------------------------------------------
+    // ZOMBIE MOB SYSTEM
+    // -------------------------------------------------------------------------
+    interface ZombieMob {
+      id: string;
+      mesh: THREE.Group;
+      health: number;
+      maxHealth: number;
+      verticalVelocity: number;
+      knockbackVelocity: THREE.Vector3;
+      lastHurtTime: number;
+      lastAttackTime: number;
+    }
+    const activeMobs: ZombieMob[] = [];
+
+    const getZombieMaterials = () => {
+      // Skin material (solid green with some noise)
+      const skinCanvas = document.createElement('canvas');
+      skinCanvas.width = 16;
+      skinCanvas.height = 16;
+      const skinCtx = skinCanvas.getContext('2d')!;
+      skinCtx.fillStyle = '#2e6f40';
+      skinCtx.fillRect(0, 0, 16, 16);
+      for (let i = 0; i < 16; i++) {
+        for (let j = 0; j < 16; j++) {
+          if (Math.random() > 0.5) {
+            skinCtx.fillStyle = Math.random() > 0.5 ? '#1f4f2d' : '#3c8c50';
+            skinCtx.fillRect(i, j, 1, 1);
+          }
+        }
+      }
+      const skinTex = new THREE.CanvasTexture(skinCanvas);
+      skinTex.magFilter = THREE.NearestFilter;
+      skinTex.minFilter = THREE.NearestFilter;
+      const skinMat = new THREE.MeshLambertMaterial({ map: skinTex });
+
+      // Face material (with glowing red eyes!)
+      const faceCanvas = document.createElement('canvas');
+      faceCanvas.width = 16;
+      faceCanvas.height = 16;
+      const faceCtx = faceCanvas.getContext('2d')!;
+      faceCtx.fillStyle = '#2e6f40';
+      faceCtx.fillRect(0, 0, 16, 16);
+      for (let i = 0; i < 16; i++) {
+        for (let j = 0; j < 16; j++) {
+          if (Math.random() > 0.5) {
+            faceCtx.fillStyle = Math.random() > 0.5 ? '#1f4f2d' : '#3c8c50';
+            faceCtx.fillRect(i, j, 1, 1);
+          }
+        }
+      }
+      // Red eyes with black borders (matches uploaded skin texture)
+      faceCtx.fillStyle = '#ff0000'; // red pupil
+      faceCtx.fillRect(3, 6, 2, 1);
+      faceCtx.fillRect(11, 6, 2, 1);
+      faceCtx.fillStyle = '#000000'; // black details
+      faceCtx.fillRect(2, 6, 1, 1);
+      faceCtx.fillRect(5, 6, 1, 1);
+      faceCtx.fillRect(10, 6, 1, 1);
+      faceCtx.fillRect(13, 6, 1, 1);
+      faceCtx.fillStyle = '#1c4226'; // mouth
+      faceCtx.fillRect(4, 11, 8, 2);
+
+      const faceTex = new THREE.CanvasTexture(faceCanvas);
+      faceTex.magFilter = THREE.NearestFilter;
+      faceTex.minFilter = THREE.NearestFilter;
+      const faceMat = new THREE.MeshLambertMaterial({ map: faceTex });
+
+      // Torso shirt texture
+      const torsoCanvas = document.createElement('canvas');
+      torsoCanvas.width = 16;
+      torsoCanvas.height = 16;
+      const torsoCtx = torsoCanvas.getContext('2d')!;
+      torsoCtx.fillStyle = '#14859a'; // cyan shirt
+      torsoCtx.fillRect(0, 0, 16, 16);
+      for (let i = 0; i < 16; i++) {
+        for (let j = 0; j < 16; j++) {
+          if (Math.random() > 0.6) {
+            torsoCtx.fillStyle = Math.random() > 0.5 ? '#106c7e' : '#1fb1cc';
+            torsoCtx.fillRect(i, j, 1, 1);
+          }
+        }
+      }
+      // Green neck insert
+      torsoCtx.fillStyle = '#2e6f40';
+      torsoCtx.fillRect(6, 0, 4, 3);
+
+      const torsoTex = new THREE.CanvasTexture(torsoCanvas);
+      torsoTex.magFilter = THREE.NearestFilter;
+      torsoTex.minFilter = THREE.NearestFilter;
+      const torsoMat = new THREE.MeshLambertMaterial({ map: torsoTex });
+
+      // Pants material (blue/dark blue)
+      const pantsCanvas = document.createElement('canvas');
+      pantsCanvas.width = 16;
+      pantsCanvas.height = 16;
+      const pantsCtx = pantsCanvas.getContext('2d')!;
+      pantsCtx.fillStyle = '#2a3b90'; // dark blue pants
+      pantsCtx.fillRect(0, 0, 16, 16);
+      for (let i = 0; i < 16; i++) {
+        for (let j = 0; j < 16; j++) {
+          if (Math.random() > 0.5) {
+            pantsCtx.fillStyle = Math.random() > 0.5 ? '#1d2766' : '#384cb8';
+            pantsCtx.fillRect(i, j, 1, 1);
+          }
+        }
+      }
+      const pantsTex = new THREE.CanvasTexture(pantsCanvas);
+      pantsTex.magFilter = THREE.NearestFilter;
+      pantsTex.minFilter = THREE.NearestFilter;
+      const pantsMat = new THREE.MeshLambertMaterial({ map: pantsTex });
+
+      return { skinMat, faceMat, torsoMat, pantsMat };
+    };
+
+    const zombieMats = getZombieMaterials();
+
+    const createZombieMesh = (mats: ReturnType<typeof getZombieMaterials>) => {
+      const group = new THREE.Group();
+
+      // Head: width 0.5, height 0.5, depth 0.5
+      const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+      const headMats = [
+        mats.skinMat, // right
+        mats.skinMat, // left
+        mats.skinMat, // top
+        mats.skinMat, // bottom
+        mats.faceMat, // front (Z+)
+        mats.skinMat, // back
+      ];
+      const head = new THREE.Mesh(headGeo, headMats);
+      head.name = 'head';
+      head.position.set(0, 1.35, 0);
+      group.add(head);
+
+      // Torso: width 0.5, height 0.7, depth 0.26
+      const torsoGeo = new THREE.BoxGeometry(0.5, 0.7, 0.26);
+      const torso = new THREE.Mesh(torsoGeo, mats.torsoMat);
+      torso.name = 'torso';
+      torso.position.set(0, 0.75, 0);
+      group.add(torso);
+
+      // Left Arm: pivot at top (translate geometry)
+      const armGeoLeft = new THREE.BoxGeometry(0.2, 0.7, 0.2);
+      armGeoLeft.translate(0, -0.35, 0);
+      const leftArm = new THREE.Mesh(armGeoLeft, mats.skinMat);
+      leftArm.name = 'leftArm';
+      leftArm.position.set(-0.35, 1.05, 0);
+      leftArm.rotation.x = -Math.PI / 2;
+      group.add(leftArm);
+
+      // Right Arm: pivot at top (translate geometry)
+      const armGeoRight = new THREE.BoxGeometry(0.2, 0.7, 0.2);
+      armGeoRight.translate(0, -0.35, 0);
+      const rightArm = new THREE.Mesh(armGeoRight, mats.skinMat);
+      rightArm.name = 'rightArm';
+      rightArm.position.set(0.35, 1.05, 0);
+      rightArm.rotation.x = -Math.PI / 2;
+      group.add(rightArm);
+
+      // Left Leg: pivot at top (translate geometry)
+      const legGeoLeft = new THREE.BoxGeometry(0.22, 0.7, 0.22);
+      legGeoLeft.translate(0, -0.35, 0);
+      const leftLeg = new THREE.Mesh(legGeoLeft, mats.pantsMat);
+      leftLeg.name = 'leftLeg';
+      leftLeg.position.set(-0.13, 0.4, 0);
+      group.add(leftLeg);
+
+      // Right Leg: pivot at top (translate geometry)
+      const legGeoRight = new THREE.BoxGeometry(0.22, 0.7, 0.22);
+      legGeoRight.translate(0, -0.35, 0);
+      const rightLeg = new THREE.Mesh(legGeoRight, mats.pantsMat);
+      rightLeg.name = 'rightLeg';
+      rightLeg.position.set(0.13, 0.4, 0);
+      group.add(rightLeg);
+
+      // Cast and receive shadow
+      group.traverse(child => {
+        if (child instanceof THREE.Mesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+
+      return group;
+    };
+
     const spawnDroppedItem = (x: number, y: number, z: number, type: BlockType) => {
       const mat = materials[type];
       if (!mat) return;
@@ -364,6 +568,25 @@ export default function GameCanvas({
       const pY = Math.round(camera.position.y);
       const pZ = Math.round(camera.position.z);
       const viewRadius = settingsRef.current.renderDistance * 16;
+
+      // DYNAMIC INFINITE TERRAIN GENERATION: Generate ungenerated columns on demand
+      const newBlocks: Record<string, number> = {};
+      let generatedAny = false;
+      for (let x = pX - viewRadius; x <= pX + viewRadius; x++) {
+        for (let z = pZ - viewRadius; z <= pZ + viewRadius; z++) {
+          const colKey = `${x},${z}`;
+          if (!generatedColumns.has(colKey)) {
+            generatedColumns.add(colKey);
+            generateColumn(x, z, newBlocks);
+            generatedAny = true;
+          }
+        }
+      }
+
+      if (generatedAny) {
+        Object.assign(blocksRef.current, newBlocks);
+        onUpdateBlocks(prev => ({ ...prev, ...newBlocks }));
+      }
 
       // Group coords by block type to batch build InstancedMeshes
       const typeCoordinates: Record<number, THREE.Vector3[]> = {};
@@ -681,6 +904,53 @@ export default function GameCanvas({
     const executeAction = (actionType: 'break' | 'place') => {
       if (isPausedRef.current) return;
 
+      if (actionType === 'break') {
+        // --- Attack Mob Check ---
+        let hitMob: ZombieMob | null = null;
+        let minMobDist = 3.8;
+        const playerPos = camera.position.clone();
+        const lookDir = new THREE.Vector3();
+        camera.getWorldDirection(lookDir);
+
+        for (const mob of activeMobs) {
+          const mobPos = mob.mesh.position.clone();
+          mobPos.y += 0.8; // Target body center
+          const toMob = mobPos.clone().sub(playerPos);
+          const dist = toMob.length();
+          if (dist < minMobDist) {
+            toMob.normalize();
+            const angleCos = lookDir.dot(toMob);
+            if (angleCos > 0.86) { // inside ~30 degrees cone
+              hitMob = mob;
+              minMobDist = dist;
+            }
+          }
+        }
+
+        if (hitMob) {
+          // Attack mob!
+          hitMob.health -= 35; // dies in 3 hits!
+          hitMob.lastHurtTime = performance.now();
+          playSound.zombieHurt(settingsRef.current.soundEnabled);
+          
+          // Apply knockback: push in looking direction & slightly up
+          hitMob.knockbackVelocity.copy(lookDir).multiplyScalar(0.24);
+          hitMob.knockbackVelocity.y = 0.12;
+
+          if (hitMob.health <= 0) {
+            // Remove from scene and list
+            scene.remove(hitMob.mesh);
+            const index = activeMobs.indexOf(hitMob);
+            if (index > -1) {
+              activeMobs.splice(index, 1);
+            }
+            // Spawn drop
+            spawnDroppedItem(hitMob.mesh.position.x, hitMob.mesh.position.y, hitMob.mesh.position.z, BlockType.COAL); // coal represents drop reward!
+          }
+          return; // Skip block breaking when attacking a mob!
+        }
+      }
+
       const target = getTargetedVoxel();
       if (!target) return;
 
@@ -944,6 +1214,196 @@ export default function GameCanvas({
       }
     };
 
+    let lastMobSpawnTime = 0;
+    const updateMobs = (delta: number) => {
+      const now = performance.now();
+      const pPos = camera.position.clone();
+      const currentSettings = settingsRef.current;
+      const currentStats = statsRef.current;
+      const isNight = currentSettings.dayNightCycle && (currentSettings.timeOfDay >= 7000 && currentSettings.timeOfDay < 17000);
+
+      // Spawning logic (only at night!)
+      if (isNight && now - lastMobSpawnTime > 3000 && activeMobs.length < 10 && currentStats.health > 0) {
+        lastMobSpawnTime = now;
+        
+        // Pick random location 18-35 blocks away
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 18 + Math.random() * 17;
+        const x = Math.round(pPos.x + Math.cos(angle) * dist);
+        const z = Math.round(pPos.z + Math.sin(angle) * dist);
+
+        // Get height at (x, z)
+        const n = perlin.fbm2D(x * 0.03, z * 0.03, 3, 2.1, 0.45);
+        const heightLevel = Math.floor(n * 10 + 12);
+        
+        // Ensure spawn is within valid elevation bounds
+        if (heightLevel >= -19 && heightLevel <= 28) {
+          const mobMesh = createZombieMesh(zombieMats);
+          mobMesh.position.set(x, heightLevel + 1.1, z); // spawn on top of surface block
+          scene.add(mobMesh);
+
+          activeMobs.push({
+            id: Math.random().toString(),
+            mesh: mobMesh,
+            health: 100,
+            maxHealth: 100,
+            verticalVelocity: 0,
+            knockbackVelocity: new THREE.Vector3(),
+            lastHurtTime: 0,
+            lastAttackTime: 0
+          });
+
+          // Play zombie spawn growl
+          playSound.zombieGrowl(currentSettings.soundEnabled);
+        }
+      }
+
+      // Update active mobs
+      for (let i = activeMobs.length - 1; i >= 0; i--) {
+        const mob = activeMobs[i];
+        const mPos = mob.mesh.position.clone();
+        const distToPlayer = mPos.distanceTo(pPos);
+
+        // 1. Despawn if too far away (> 50 blocks)
+        if (distToPlayer > 50) {
+          scene.remove(mob.mesh);
+          activeMobs.splice(i, 1);
+          continue;
+        }
+
+        // 2. Burning during daytime!
+        if (!isNight) {
+          const burnRand = Math.random();
+          if (burnRand > 0.985) {
+            playSound.zombieBurn(currentSettings.soundEnabled);
+          }
+          // Reduce health
+          mob.health -= 12 * delta; // takes ~8 seconds to burn to death
+          mob.lastHurtTime = now; // keep red flash flashing
+          
+          if (mob.health <= 0) {
+            scene.remove(mob.mesh);
+            activeMobs.splice(i, 1);
+            // Spawn some Rotten Flesh drops (represented by wood block)
+            spawnDroppedItem(mPos.x, mPos.y, mPos.z, BlockType.WOOD);
+            continue;
+          }
+        }
+
+        // 3. Move and direct mob towards player if alive
+        if (currentStats.health > 0) {
+          const dirToPlayer = pPos.clone().sub(mPos);
+          dirToPlayer.y = 0; // Flat horizontal direction
+          const flatDist = dirToPlayer.length();
+
+          if (flatDist > 0.1) {
+            dirToPlayer.normalize();
+
+            // Face the player
+            mob.mesh.rotation.y = Math.atan2(dirToPlayer.x, dirToPlayer.z);
+
+            // Calculate walk velocity
+            const walkSpeed = 1.6; // speed units/sec
+            const vel = dirToPlayer.clone().multiplyScalar(walkSpeed * delta);
+
+            // Gravity & Vertical Physics
+            mob.verticalVelocity -= 0.012; // gravity pull
+            if (mob.verticalVelocity < -0.45) mob.verticalVelocity = -0.45;
+
+            const nextX = mPos.x + vel.x + mob.knockbackVelocity.x;
+            const nextZ = mPos.z + vel.z + mob.knockbackVelocity.z;
+            const nextY = mPos.y + mob.verticalVelocity;
+
+            // Apply friction/decay to knockback
+            mob.knockbackVelocity.multiplyScalar(0.85);
+            if (mob.knockbackVelocity.length() < 0.01) {
+              mob.knockbackVelocity.set(0, 0, 0);
+            }
+
+            // Simple Collision & Jump Over Blocks
+            const testX = Math.round(nextX);
+            const testZ = Math.round(nextZ);
+
+            // Ground snap
+            let isMobGrounded = false;
+            const checkFeetBlock = blocksRef.current[`${testX},${Math.floor(nextY - 0.5)},${testZ}`];
+            if (checkFeetBlock && BLOCK_DETAILS[checkFeetBlock as BlockType]?.isSolid) {
+              mob.mesh.position.y = Math.floor(nextY - 0.5) + 1.5;
+              mob.verticalVelocity = 0;
+              isMobGrounded = true;
+            } else {
+              mob.mesh.position.y = nextY;
+            }
+
+            // Jump over obstacles!
+            const blockInFrontLeg = blocksRef.current[`${testX},${Math.round(mPos.y - 0.2)},${testZ}`];
+            const blockInFrontHead = blocksRef.current[`${testX},${Math.round(mPos.y + 0.8)},${testZ}`];
+            if (blockInFrontLeg && BLOCK_DETAILS[blockInFrontLeg as BlockType]?.isSolid) {
+              if (isMobGrounded && (!blockInFrontHead || !BLOCK_DETAILS[blockInFrontHead as BlockType]?.isSolid)) {
+                mob.verticalVelocity = 0.16; // Jump!
+              }
+            }
+
+            // Move X & Z
+            mob.mesh.position.x = nextX;
+            mob.mesh.position.z = nextZ;
+
+            // 4. Attack player if close enough (< 1.4 blocks) and in survival mode
+            if (currentStats.mode === 'survival' && distToPlayer < 1.4 && now - mob.lastAttackTime > 1200) {
+              mob.lastAttackTime = now;
+              // Deal damage
+              onUpdateStats(prev => ({
+                ...prev,
+                health: Math.max(0, prev.health - 12)
+              }));
+              playSound.hurt(currentSettings.soundEnabled);
+              
+              // Mob jump attack jump effect
+              mob.verticalVelocity = 0.08;
+            }
+          }
+        }
+
+        // 5. Red hurt damage flash
+        const isHurt = now - mob.lastHurtTime < 250;
+        mob.mesh.traverse(child => {
+          if (child instanceof THREE.Mesh) {
+            const mats = Array.isArray(child.material) ? child.material : [child.material];
+            mats.forEach(mat => {
+              if (mat && 'color' in mat) {
+                if (isHurt) {
+                  mat.color.setHex(0xff3333);
+                } else {
+                  mat.color.setHex(0xffffff);
+                }
+              }
+            });
+          }
+        });
+
+        // 6. Limb walking animation
+        const leftLeg = mob.mesh.getObjectByName('leftLeg');
+        const rightLeg = mob.mesh.getObjectByName('rightLeg');
+        if (leftLeg && rightLeg) {
+          const swingSpeed = 6.0;
+          const angle = Math.sin(now * 0.001 * swingSpeed) * 0.55;
+          leftLeg.rotation.x = angle;
+          rightLeg.rotation.x = -angle;
+        }
+
+        // Subtle head bobbing
+        const head = mob.mesh.getObjectByName('head');
+        if (head) {
+          head.rotation.y = Math.sin(now * 0.001 * 3.0) * 0.1;
+        }
+
+        // Occasional zombie vocal growl sounds
+        if (Math.random() > 0.9982) {
+          playSound.zombieGrowl(currentSettings.soundEnabled);
+        }
+      }
+    };
+
     const animate = () => {
       requestAnimationFrame(animate);
 
@@ -952,15 +1412,22 @@ export default function GameCanvas({
       const delta = clock.getDelta();
       updateMining(delta);
       updateDroppedItems(delta);
+      updateMobs(delta);
       const currentStats = statsRef.current;
       const currentSettings = settingsRef.current;
       const now = performance.now();
       
       // Dynamic Day/Night Cycle speed
       if (currentSettings.dayNightCycle) {
-        const speed = currentSettings.cycleSpeed * 5;
-        // Update local object immediately for smooth 60fps rendering updates
-        currentSettings.timeOfDay = (currentSettings.timeOfDay + speed) % 24000;
+        const t = currentSettings.timeOfDay;
+        // Day/sunrise/sunset (17000-24000 and 0-7000) totals 14000 units. We want this to take exactly 10 minutes (600 seconds).
+        // Night (7000-17000) totals 10000 units. We want this to take exactly 10 minutes (600 seconds).
+        const unitsPerSecond = (t >= 7000 && t < 17000)
+          ? (10000 / 600) // Night: 10 minutes
+          : (14000 / 600); // Day/Sunset/Sunrise: 10 minutes
+        
+        // Advance timeOfDay based on delta time and cycleSpeed multiplier
+        currentSettings.timeOfDay = (currentSettings.timeOfDay + delta * unitsPerSecond * currentSettings.cycleSpeed) % 24000;
         
         // Throttled React state dispatch to avoid heavy rendering lag
         if (now - lastSettingsUpdateTime > 500) {
@@ -1382,6 +1849,19 @@ export default function GameCanvas({
       activeDroppedItems.forEach(item => {
         scene.remove(item.mesh);
       });
+      activeMobs.forEach(mob => {
+        scene.remove(mob.mesh);
+      });
+      if (zombieMats) {
+        zombieMats.skinMat.map?.dispose();
+        zombieMats.skinMat.dispose();
+        zombieMats.faceMat.map?.dispose();
+        zombieMats.faceMat.dispose();
+        zombieMats.torsoMat.map?.dispose();
+        zombieMats.torsoMat.dispose();
+        zombieMats.pantsMat.map?.dispose();
+        zombieMats.pantsMat.dispose();
+      }
       crackTextures.forEach(t => t.dispose());
       renderer.dispose();
     };
@@ -1427,17 +1907,37 @@ export default function GameCanvas({
       {!pointerLocked && !isPaused && !isMobile && (
         <div 
           onClick={handleRequestLock}
-          className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center pointer-events-auto cursor-pointer"
+          className="absolute inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center pointer-events-auto cursor-pointer"
         >
-          <div className="bg-zinc-950/95 border border-white/10 p-5 rounded-xl text-center max-w-sm shadow-2xl animate-fade-in" onClick={e => e.stopPropagation()}>
-            <Compass className="w-8 h-8 text-cyan-400 mx-auto mb-2 animate-bounce" />
-            <h3 className="font-bold text-sm text-white mb-1">鎖定滑鼠視角</h3>
-            <p className="text-xs text-zinc-400 leading-normal mb-4">
-              請點擊此處「啟動視角控制」，即可使用滑鼠旋轉方向，並用鍵盤 <strong>WASD</strong> 移動！
+          <div 
+            className="bg-[#2e2e2e] border-[4px] border-[#1a1a1a] rounded-lg shadow-[0_0_30px_rgba(0,0,0,0.8)] p-6 text-center max-w-sm w-full mx-4 flex flex-col items-center gap-4 animate-fade-in" 
+            onClick={e => e.stopPropagation()}
+          >
+            <Compass className="w-10 h-10 text-yellow-500 mb-1 animate-pulse" />
+            <h3 
+              className="font-pixel text-yellow-300 text-sm md:text-base leading-tight uppercase select-none"
+              style={{
+                textShadow: `
+                  -1.5px -1.5px 0 #000,  
+                   1.5px -1.5px 0 #000,
+                  -1.5px  1.5px 0 #000,
+                   1.5px  1.5px 0 #000,
+                   0px  2px 0 #555,
+                   0px  3px 0 #000
+                `
+              }}
+            >
+              鎖定滑鼠視角
+            </h3>
+            <p className="text-zinc-300 font-vt text-lg leading-relaxed select-none">
+              請點擊此處「啟動視角控制」，即可使用滑鼠旋轉方向，並用鍵盤 <strong className="text-yellow-400 font-extrabold font-mono">WASD</strong> 移動！
             </p>
             <button 
               onClick={handleRequestLock}
-              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 font-bold text-xs rounded-lg text-black transition-all cursor-pointer"
+              className="w-full border-[3px] border-zinc-900 bg-[#3c8527] hover:bg-[#479a2f] active:bg-[#2d631d] text-white font-extrabold text-base md:text-lg py-3 px-6 shadow-[inset_3px_3px_0px_#5ea33a,inset_-3px_-3px_0px_#1f4e11] rounded-[4px] outline outline-[3px] outline-white outline-offset-1 cursor-pointer transition-all duration-75 select-none font-vt tracking-wider active:scale-95 text-center"
+              style={{
+                textShadow: '1px 1px 0px rgba(0,0,0,0.8)'
+              }}
             >
               進入遊戲世界
             </button>
